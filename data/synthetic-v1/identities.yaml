@@ -1,0 +1,15 @@
+version: synthetic-v1
+synthetic: true
+identities:
+  - subject_id: guest-01
+    role: guest
+  - subject_id: guest-02
+    role: guest
+  - subject_id: employee-01
+    role: employee
+  - subject_id: employee-02
+    role: employee
+  - subject_id: security_reviewer-01
+    role: security_reviewer
+  - subject_id: security_reviewer-02
+    role: security_reviewer

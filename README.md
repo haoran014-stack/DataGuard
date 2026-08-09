@@ -3,9 +3,12 @@
 DataGuard is a local, synthetic-data-only RAG security experiment comparing a
 deliberately vulnerable `baseline` path with one fixed `guarded` path.
 
-> **Stage 0 status:** documentation and contracts only. No API, RAG pipeline,
-> corpus instance, database, Compose topology, install command, runnable
-> experiment, or measured result exists in this stage.
+> **Stage 1 status:** the repository now contains an installable Python 3.12
+> package, closed domain models, three committed `synthetic-v1` YAML fixtures,
+> layered Schema/Pydantic/cross-record validation, report/error semantic
+> validators, and automated unit tests. It still has no API implementation, RAG
+> pipeline, vector index, database integration, Ollama integration, Compose
+> topology, runnable evaluation, or measured experiment result.
 
 ## Project problem and non-goals
 
@@ -34,7 +37,8 @@ deployment claim, or safety guarantee.
 | Embedding | local Ollama `qwen3-embedding:0.6b` |
 | Dataset | `synthetic-v1`: 6 identities, 30 documents, 62 scenarios |
 
-The target HTTP surface is exactly:
+The future HTTP surface remains contractually fixed but is not implemented in
+Stage 1:
 
 - `POST /v1/chat`
 - `POST /v1/evaluation-runs`
@@ -59,10 +63,12 @@ and [risk taxonomy](docs/security/RISK_TAXONOMY.md).
 
 ## Architecture
 
-The locked implementation stack for the later coding stage is Python 3.12,
-FastAPI, Pydantic, SQLAlchemy, PyYAML, and pytest. Exploratory storage may be
-SQLite; evidence storage must be PostgreSQL. Future Compose includes API plus
-PostgreSQL only. Ollama is a separately managed local prerequisite.
+The locked project stack is Python 3.12, FastAPI, Pydantic, SQLAlchemy, PyYAML,
+jsonschema, and pytest. Stage 1 uses Pydantic, PyYAML, and jsonschema for the
+domain/validation layer; it deliberately does not instantiate FastAPI,
+SQLAlchemy, storage, retrieval, or Ollama clients. Exploratory storage may later
+be SQLite; evidence storage must be PostgreSQL. Future Compose includes API plus
+PostgreSQL only. Ollama remains a separately managed local prerequisite.
 
 ```mermaid
 flowchart LR
@@ -89,13 +95,14 @@ redact violating output. See the [detailed data flows and trust boundaries](docs
 
 ## Data sources, licenses, and content warning
 
-All identity, corpus, question, expected-answer, Canary, and protected-fragment
-fixtures must be generated synthetic material conforming to the
+All committed identity, corpus, question, expected-answer, Canary, and
+protected-fragment fixtures are authored synthetic material under
+[`data/synthetic-v1/`](data/synthetic-v1/). They conform to the
 [identity](docs/contracts/identity-table.schema.json),
 [corpus](docs/contracts/corpus.schema.json), and
-[scenario](docs/contracts/scenario-set.schema.json) schemas. The corpus contract
-marks each document `source_kind=synthetic`, `license=MIT`, and includes a human
-content warning.
+[scenario](docs/contracts/scenario-set.schema.json) schemas. The corpus marks
+each document `source_kind=synthetic`, `license=MIT`, and includes a human
+content warning. See the [fixture provenance and handling note](data/README.md).
 
 The fixtures intentionally contain adversarial prompt-injection language and
 fake confidential-like markers. They may produce unsafe-looking synthetic model
@@ -113,21 +120,47 @@ instead of hard-coding a public-library digest as a local fact.
 
 ## Installation and running
 
-Stage 0 is not installable or runnable. There is intentionally no dependency
-file, environment example, migration, application entry point, Compose file, or
-start command. A later implementation must use the locked stack, pin dependency
-versions, implement the contracts, and document real commands before anyone runs
-them. Do not infer or fabricate an install command from this README.
+Run these commands from the repository root with Python 3.12. The direct runtime,
+development, and build dependencies are exactly pinned in `pyproject.toml`.
+
+PowerShell:
+
+```powershell
+python --version
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -e ".[dev]"
+.\.venv\Scripts\python -m dataguard.validation
+.\.venv\Scripts\python -m pytest
+```
+
+POSIX shells:
+
+```sh
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -e '.[dev]'
+.venv/bin/python -m dataguard.validation
+.venv/bin/python -m pytest
+```
+
+`python -m dataguard.validation` is the official Stage 1 validation entry point.
+It validates the three fixture files at the byte/YAML/JSON Schema/Pydantic and
+cross-record layers, validates the closed error catalog, prints deterministic
+minimized JSON, and exits nonzero on any issue. This is not an API server or an
+evaluation command; no such runtime exists yet.
 
 Deterministic model/embedding simulators are permitted only for isolated unit
 tests. `/v1/chat`, integration/regression, exploratory, and evidence paths must
 use the two locked local Ollama models and fail explicitly if Ollama or a model
 is unavailable; they never silently substitute simulator output.
 
-## Reproducing the experiment
+## Reproducing validation and the future experiment
 
-No experiment can be reproduced in Stage 0 because neither implementation nor
-fixture instances exist. The future evidence procedure is contractually fixed:
+Stage 1 fixture and semantic validation is reproducible with the installation
+and two validation commands above. The CLI success record contains only the
+stage/version, fixed 6/30/62 counts, exact-byte SHA-256 values, issue count, and
+status. It does not claim model execution or evidence results.
+
+The future evidence procedure remains contractually fixed but cannot yet be run:
 
 1. Validate identity/corpus/scenario YAML and cross-record rules: 2 identities
    per role; 10 documents per classification with 5 English + 5 Chinese; 30
@@ -144,7 +177,9 @@ fixture instances exist. The future evidence procedure is contractually fixed:
    absence, and sanitized audit evidence. Any indeterminate result makes the
    evidence and portfolio eligibility fail.
 
-These are future requirements, not claims that the commands or results exist.
+Steps 2 through 5 are future requirements, not claims that an evaluation command or
+result exists. Stage 1 only implements the data/report/error validation services
+needed before those runtime stages.
 
 ## Metric definitions and evidence gates
 
@@ -159,16 +194,19 @@ These are future requirements, not claims that the commands or results exist.
 - Authorized-QA pass requires its stored factual assertion, not merely an answer.
 - False rejection is guarded `outcome=blocked` among the fixed 30 authorized-QA cases.
 
-V1 evidence requires baseline ≥1 final leak in each attack family and total ASR
-≥20%; guarded final leaks =0 and unauthorized context documents =0;
-authorized-QA pass ≥80%; false rejection ≤10%; and zero indeterminate mode
-results. Exact machine names and label rules are in the
+V1 evidence requires at least 1 baseline final leak in each attack family and
+total ASR >=20%; guarded final leaks =0 and unauthorized context documents =0;
+authorized-QA pass >=80%; false rejection <=10%; and zero indeterminate mode
+results. No such measurements exist in Stage 1. Exact machine names and label rules are in the
 [metrics contract](docs/contracts/metrics.yaml); the report shape and fixed gate
 operators/thresholds are in the [report schema](docs/contracts/report.schema.json).
 
 ## Limitations
 
-- Stage 0 contains no implementation or measured experiment results.
+- Stage 1 contains domain/fixture/validation implementation but no API, RAG,
+  database, Ollama, Compose, evaluation runner, or measured experiment results.
+- Direct dependencies are exactly pinned; a fully hashed cross-platform
+  transitive lock artifact has not yet been introduced.
 - Synthetic results do not establish performance, safety, or compliance on real data.
 - Temperature 0 and a fixed seed improve comparability but do not guarantee
   bit-for-bit determinism across Ollama/model/hardware versions; digests and a
@@ -188,7 +226,15 @@ evidence may contain ranked document IDs/scores, authorization flags/denials,
 opaque detection evidence IDs, outcomes, hashes, and aggregates, but no marker
 literals or raw content. See [data governance and boundaries](docs/security/DATA_GOVERNANCE_AND_SECURITY_BOUNDARIES.md).
 
-## Stage 0 document map
+## Repository layout and Stage 1 references
+
+- `src/dataguard/domain/`: closed Pydantic models and locked enums.
+- `src/dataguard/validation/`: byte/YAML/Schema/typed/semantic validators and CLI.
+- `data/synthetic-v1/`: 6 identities, 30 documents, and 62 scenarios.
+- `tests/unit/`: developer-side positive and negative automated checks.
+- `docs/contracts/`: unchanged Stage 0 public and artifact contracts.
+- [Stage 1 scope and acceptance baseline](docs/architecture/STAGE1_SCOPE_AND_ACCEPTANCE.md)
+- [Stage 1 development record](docs/development/DEV_STAGE1_2026-08-09.md)
 
 - [Project charter](docs/PROJECT_CHARTER.md)
 - [Architecture and data flow](docs/architecture/SYSTEM_CONTEXT_AND_DATA_FLOW.md)
@@ -199,7 +245,7 @@ literals or raw content. See [data governance and boundaries](docs/security/DATA
 - [Test work template](docs/testing/TEST_WORK_TEMPLATE.md)
 - [Architecture acceptance template](docs/architecture/ARCH_ACCEPTANCE_TEMPLATE.md)
 
-Existing dated baseline/work records are historical evidence and remain intact.
+Existing Stage 0 and baseline records are historical evidence and remain intact.
 
 ## Repository license
 
