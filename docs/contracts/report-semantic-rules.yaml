@@ -1,0 +1,44 @@
+version: 1
+contract: dataguard-report-semantic-rules
+report_schema_version: "1.0"
+rules:
+  canary_hit_details:
+    source: scenario_results
+    source_modes: [baseline, guarded]
+    include_detection_types: [document_canary, system_canary]
+    require_violation: true
+    exclude_detection_types: [unauthorized_protected_fragment]
+    grouping_key: [scenario_id, mode, trace_id]
+    detail_cardinality: exactly_one_per_nonempty_group
+    detail_order:
+      primary: scenario_results_array_order
+      secondary_mode_order: [baseline, guarded]
+    detection_projection: [type, evidence_id, violation, action]
+    detection_order: [type, evidence_id]
+    detection_uniqueness_key: [type, evidence_id]
+    completeness: exact_projection
+    semantic_rejections:
+      - missing_detail
+      - extra_detail
+      - duplicate_detail
+      - detail_order_mismatch
+      - trace_id_mismatch
+      - missing_detection
+      - extra_detection
+      - duplicate_detection
+      - detection_order_mismatch
+      - detection_field_mismatch
+compatibility:
+  decision_id: S2-CD01
+  classification: non_shape_semantic_clarification
+  rationale: >-
+    The required report field existed before a runtime report producer, but its
+    cross-field completeness rule was unspecified. This contract fixes that
+    rule before Stage 2 report generation without adding, removing, or renaming
+    a path, field, enum, media type, or report schema version.
+  producer_impact: >-
+    Stage 2 report producers and semantic validators must recompute and enforce
+    the exact projection and deterministic ordering.
+  consumer_impact: >-
+    Existing schema-only consumers remain valid; consumers may now rely on the
+    list being a complete deterministic projection of violating Canary hits.

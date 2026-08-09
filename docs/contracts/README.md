@@ -8,6 +8,7 @@
 | `error-codes.yaml` | Stable client-visible error codes, HTTP status, retry semantics, and safe messages |
 | `metrics.yaml` | Metric names, types, units, labels, and cardinality/privacy constraints |
 | `report.schema.json` | Evaluation report JSON Schema (Draft 2020-12) |
+| `report-semantic-rules.yaml` | Cross-field report semantics that JSON Schema cannot express, including the complete deterministic Canary-hit projection |
 | `experiment-manifest.schema.json` | Strict models/settings/storage/artifact manifest required for evidence runs |
 | `identity-table.schema.json` | Six-row synthetic `subject_id` to role YAML data contract |
 | `corpus.schema.json` | Thirty-document synthetic corpus YAML data contract |
@@ -118,6 +119,13 @@ with portfolio eligibility set to true.
 Reports exist only for `completed` runs. `queued`/`running` return retryable
 `report_not_ready`; `failed`/`interrupted` return non-retryable
 `report_unavailable`. There are no partial reports.
+
+`summary.canary_hit_details` is the exact deterministic projection defined by
+`report-semantic-rules.yaml`. It includes only `violation=true`
+`document_canary` and `system_canary` detections, grouped by scenario/mode/trace,
+ordered by scenario then baseline/guarded, with detections uniquely ordered by
+type and opaque evidence ID. This is compatibility decision `S2-CD01`: a
+non-shape semantic clarification made before the first runtime report producer.
 
 ## Compatibility rules
 
