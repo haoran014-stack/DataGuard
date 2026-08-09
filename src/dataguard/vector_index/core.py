@@ -111,6 +111,22 @@ class ValidatedVectorIndex:
     def document_count(self) -> int:
         return len(self._artifact.entries)
 
+    @property
+    def corpus_sha256(self) -> str:
+        return self._artifact.corpus_sha256
+
+    @property
+    def ordered_document_ids(self) -> tuple[str, ...]:
+        return self._artifact.ordered_document_ids
+
+    @property
+    def embedding_model_tag(self) -> str:
+        return self._artifact.embedding_model_tag
+
+    @property
+    def embedding_model_digest(self) -> str:
+        return self._artifact.embedding_model_digest
+
     def __repr__(self) -> str:
         return (
             "ValidatedVectorIndex("

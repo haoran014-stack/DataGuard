@@ -246,6 +246,22 @@ def test_embed_request_shape_and_immutable_finite_response() -> None:
     }
 
 
+def test_embed_accepts_whitespace_only_input_without_normalization() -> None:
+    observed: list[httpx.Request] = []
+    whitespace = " \t\u3000\n"
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        observed.append(request)
+        return _json_response(
+            {"model": EMBEDDING_MODEL, "embeddings": [[1.0, 0.0]]}
+        )
+
+    assert _run(
+        _embed_with_handler(handler, inputs=(whitespace,), expected_dimensions=2)
+    ) == ((1.0, 0.0),)
+    assert json.loads(observed[0].content)["input"] == [whitespace]
+
+
 def test_chat_request_shape_has_locked_options_no_tools_and_accepts_empty_content() -> None:
     observed: list[httpx.Request] = []
 
@@ -728,7 +744,6 @@ def test_chat_rejects_missing_extra_model_done_role_content_tools_and_thinking(
         (),
         [],
         ("",),
-        (" ",),
         ("x" * 8193,),
         tuple("x" for _ in range(65)),
         tuple("x" * 8192 for _ in range(9)),

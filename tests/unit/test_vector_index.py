@@ -371,9 +371,14 @@ def test_binding_returns_opaque_handle_and_direct_construction_is_blocked(fixtur
         _health(),
     )
     assert bound.document_count == 30 and bound.dimensions == DIMENSIONS
+    assert bound.corpus_sha256 == CORPUS_SHA
+    assert bound.ordered_document_ids == artifact.ordered_document_ids
+    assert bound.embedding_model_tag == EMBEDDING_MODEL
+    assert bound.embedding_model_digest == EMBEDDING_DIGEST
     rendered = repr(bound)
     assert "vector=" not in rendered.lower()
     assert fixture_bundle.corpus.documents[0].doc_id not in rendered
+    assert EMBEDDING_DIGEST not in rendered
     with pytest.raises((AttributeError, TypeError, ValidationError)):
         bound.dimensions = 2  # type: ignore[misc]
     assert "[1.0" not in rendered

@@ -376,7 +376,7 @@ class OllamaClient:
             or not 1 <= len(inputs) <= MAX_EMBED_INPUTS
             or any(
                 type(value) is not str
-                or not value.strip()
+                or value == ""
                 or len(value) > MAX_EMBED_INPUT_CHARS
                 for value in inputs
             )
