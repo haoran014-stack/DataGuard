@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dataguard.local/schemas/identity-table-v1.json",
+  "title": "DataGuard Synthetic Identity Table",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "synthetic", "identities"],
+  "properties": {
+    "version": {"const": "synthetic-v1"},
+    "synthetic": {"const": true},
+    "identities": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["subject_id", "role"],
+        "properties": {
+          "subject_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          },
+          "role": {"enum": ["guest", "employee", "security_reviewer"]}
+        }
+      }
+    }
+  },
+  "allOf": [
+    {"properties": {"identities": {"contains": {"properties": {"role": {"const": "guest"}}, "required": ["role"]}, "minContains": 2, "maxContains": 2}}},
+    {"properties": {"identities": {"contains": {"properties": {"role": {"const": "employee"}}, "required": ["role"]}, "minContains": 2, "maxContains": 2}}},
+    {"properties": {"identities": {"contains": {"properties": {"role": {"const": "security_reviewer"}}, "required": ["role"]}, "minContains": 2, "maxContains": 2}}}
+  ],
+  "description": "YAML instances are validated after YAML-to-JSON loading. Cross-record validation MUST also enforce unique subject_id values."
+}

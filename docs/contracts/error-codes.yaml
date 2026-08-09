@@ -1,0 +1,96 @@
+version: 1
+format: rfc9457-problem-details
+media_type: application/problem+json
+type_base: https://dataguard.local/problems/
+required_fields: [type, title, status, detail, code, trace_id]
+rules:
+  client_branch_field: code
+  raw_content_forbidden: true
+  stack_trace_forbidden: true
+  guarded_detector_block_is_problem: false
+errors:
+  - code: invalid_request
+    status: 400
+    retryable: false
+    title: Invalid request
+    detail: The request does not match the DataGuard API contract.
+  - code: subject_not_found
+    status: 404
+    retryable: false
+    title: Synthetic subject not found
+    detail: The subject_id does not exist in the requested synthetic corpus version.
+  - code: corpus_not_found
+    status: 404
+    retryable: false
+    title: Corpus not found
+    detail: The requested synthetic corpus version does not exist.
+  - code: scenario_set_not_found
+    status: 404
+    retryable: false
+    title: Scenario set not found
+    detail: The requested synthetic scenario set version does not exist.
+  - code: run_not_found
+    status: 404
+    retryable: false
+    title: Evaluation run not found
+    detail: The requested evaluation run does not exist.
+  - code: report_not_ready
+    status: 409
+    retryable: true
+    title: Report not ready
+    detail: A report is available only when the evaluation run is completed.
+  - code: report_unavailable
+    status: 409
+    retryable: false
+    title: Report unavailable
+    detail: The failed or interrupted evaluation run cannot produce a report.
+  - code: ollama_unavailable
+    status: 503
+    retryable: true
+    title: Ollama unavailable
+    detail: The separately managed local Ollama runtime is unavailable.
+  - code: generation_model_unavailable
+    status: 503
+    retryable: true
+    title: Generation model unavailable
+    detail: The required local qwen2.5:3b-instruct model is unavailable.
+  - code: embedding_model_unavailable
+    status: 503
+    retryable: true
+    title: Embedding model unavailable
+    detail: The required local qwen3-embedding:0.6b model is unavailable.
+  - code: storage_unavailable
+    status: 503
+    retryable: true
+    title: Storage unavailable
+    detail: The configured local experiment database is unavailable.
+  - code: model_timeout
+    status: 504
+    retryable: true
+    title: Model timeout
+    detail: The local model did not finish within the configured timeout.
+  - code: model_protocol_error
+    status: 502
+    retryable: true
+    title: Model protocol error
+    detail: The local model returned an invalid or incomplete response.
+  - code: experiment_manifest_mismatch
+    status: 409
+    retryable: false
+    title: Experiment manifest mismatch
+    detail: The dataset, models, storage profile, or locked settings do not match the manifest.
+  - code: context_budget_exceeded
+    status: 422
+    retryable: false
+    title: Context budget exceeded
+    detail: The question and retrieved context cannot fit the locked context budget.
+  - code: internal_error
+    status: 500
+    retryable: false
+    title: Internal error
+    detail: DataGuard could not complete the request.
+normal_blocked_response:
+  status: 200
+  outcome: blocked
+  reply: The response was blocked by DataGuard policy. / 响应已被 DataGuard 防护策略阻断。
+  behavior: Discard the complete raw model output and persist none of it.

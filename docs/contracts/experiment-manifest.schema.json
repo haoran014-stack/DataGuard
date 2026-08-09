@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dataguard.local/schemas/experiment-manifest-v1.json",
+  "title": "DataGuard Evidence Experiment Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_version",
+    "synthetic",
+    "corpus_version",
+    "scenario_set_version",
+    "created_at",
+    "profile",
+    "storage_backend",
+    "distribution",
+    "models",
+    "settings",
+    "system_prompt",
+    "detector",
+    "artifact_digests"
+  ],
+  "properties": {
+    "manifest_version": {"const": "1.0"},
+    "synthetic": {"const": true},
+    "corpus_version": {"const": "synthetic-v1"},
+    "scenario_set_version": {"const": "synthetic-v1"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "profile": {"const": "evidence"},
+    "storage_backend": {"const": "postgresql"},
+    "distribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identities", "documents", "scenarios"],
+      "properties": {
+        "identities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["total", "by_role"],
+          "properties": {
+            "total": {"const": 6},
+            "by_role": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["guest", "employee", "security_reviewer"],
+              "properties": {
+                "guest": {"const": 2},
+                "employee": {"const": 2},
+                "security_reviewer": {"const": 2}
+              }
+            }
+          }
+        },
+        "documents": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["total", "by_classification_and_language"],
+          "properties": {
+            "total": {"const": 30},
+            "by_classification_and_language": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["public", "internal", "confidential"],
+              "properties": {
+                "public": {"$ref": "#/$defs/fiveEachLanguage"},
+                "internal": {"$ref": "#/$defs/fiveEachLanguage"},
+                "confidential": {"$ref": "#/$defs/fiveEachLanguage"}
+              }
+            }
+          }
+        },
+        "scenarios": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["total", "authorized_qa", "attacks"],
+          "properties": {
+            "total": {"const": 62},
+            "authorized_qa": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["total", "one_per_document"],
+              "properties": {"total": {"const": 30}, "one_per_document": {"const": true}}
+            },
+            "attacks": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["total", "by_family"],
+              "properties": {
+                "total": {"const": 32},
+                "by_family": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["direct_prompt_injection", "indirect_document_injection", "cross_role_retrieval", "system_prompt_inducement"],
+                  "properties": {
+                    "direct_prompt_injection": {"$ref": "#/$defs/fourEachLanguage"},
+                    "indirect_document_injection": {"$ref": "#/$defs/fourEachLanguage"},
+                    "cross_role_retrieval": {"$ref": "#/$defs/fourEachLanguage"},
+                    "system_prompt_inducement": {"$ref": "#/$defs/fourEachLanguage"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ollama_version", "generation", "embedding"],
+      "properties": {
+        "ollama_version": {"type": "string", "minLength": 1, "maxLength": 64},
+        "generation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tag", "digest"],
+          "properties": {
+            "tag": {"const": "qwen2.5:3b-instruct"},
+            "digest": {"$ref": "#/$defs/sha256"}
+          }
+        },
+        "embedding": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tag", "digest", "embedding_dimensions"],
+          "properties": {
+            "tag": {"const": "qwen3-embedding:0.6b"},
+            "digest": {"$ref": "#/$defs/sha256"},
+            "embedding_dimensions": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Record actual local model metadata; expected default is 1024 and manifest locks observed value."
+            }
+          }
+        }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["temperature", "seed", "generation_top_k", "top_p", "num_ctx", "num_predict", "retrieval_top_k", "stream"],
+      "properties": {
+        "temperature": {"const": 0},
+        "seed": {"const": 42},
+        "generation_top_k": {"const": 20},
+        "top_p": {"const": 0.9},
+        "num_ctx": {"const": 8192},
+        "num_predict": {"const": 512},
+        "retrieval_top_k": {"const": 4},
+        "stream": {"const": false}
+      }
+    },
+    "system_prompt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["system_canary_evidence_id", "content_digest"],
+      "properties": {
+        "system_canary_evidence_id": {"$ref": "#/$defs/evidenceId"},
+        "content_digest": {"$ref": "#/$defs/sha256"}
+      },
+      "description": "Binds system Canary by opaque evidence ID and prompt digest; never stores its literal in generated evidence."
+    },
+    "detector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "normalization", "detection_types", "guarded_block_reply"],
+      "properties": {
+        "version": {"type": "string", "minLength": 1, "maxLength": 64},
+        "normalization": {"const": ["NFKC", "casefold", "remove_zero_width", "normalize_whitespace"]},
+        "detection_types": {"const": ["document_canary", "system_canary", "unauthorized_protected_fragment"]},
+        "guarded_block_reply": {"const": "The response was blocked by DataGuard policy. / 响应已被 DataGuard 防护策略阻断。"}
+      }
+    },
+    "artifact_digests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity_table", "corpus", "scenario_set", "vector_index", "baseline_prompt_template", "guarded_prompt_template", "guard_policy", "detector"],
+      "properties": {
+        "identity_table": {"$ref": "#/$defs/sha256"},
+        "corpus": {"$ref": "#/$defs/sha256"},
+        "scenario_set": {"$ref": "#/$defs/sha256"},
+        "vector_index": {"$ref": "#/$defs/sha256"},
+        "baseline_prompt_template": {"$ref": "#/$defs/sha256"},
+        "guarded_prompt_template": {"$ref": "#/$defs/sha256"},
+        "guard_policy": {"$ref": "#/$defs/sha256"},
+        "detector": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^(sha256:)?[a-f0-9]{64}$"},
+    "evidenceId": {"type": "string", "minLength": 1, "maxLength": 128},
+    "fiveEachLanguage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "en", "zh"],
+      "properties": {"total": {"const": 10}, "en": {"const": 5}, "zh": {"const": 5}}
+    },
+    "fourEachLanguage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "en", "zh"],
+      "properties": {"total": {"const": 8}, "en": {"const": 4}, "zh": {"const": 4}}
+    }
+  }
+}

@@ -1,0 +1,44 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Node.js and generic build output
+node_modules/
+dist/
+build/
+coverage/
+*.log
+
+# DataGuard runtime-only material
+artifacts/
+data/local/
+reports/generated/
+.ollama/
+
+# Temporary files
+*.tmp
+*.bak
+~$*

@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dataguard.local/schemas/scenario-set-v1.json",
+  "title": "DataGuard Synthetic Scenario Set",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scenario_set_version", "corpus_version", "synthetic", "scenarios"],
+  "properties": {
+    "scenario_set_version": {"const": "synthetic-v1"},
+    "corpus_version": {"const": "synthetic-v1"},
+    "synthetic": {"const": true},
+    "scenarios": {
+      "type": "array",
+      "minItems": 62,
+      "maxItems": 62,
+      "items": {"$ref": "#/$defs/scenario"}
+    }
+  },
+  "allOf": [
+    {"$ref": "#/$defs/authorizedQaThirty"},
+    {"$ref": "#/$defs/directEight"},
+    {"$ref": "#/$defs/indirectEight"},
+    {"$ref": "#/$defs/crossRoleEight"},
+    {"$ref": "#/$defs/systemEight"},
+    {"$ref": "#/$defs/directEnFour"},
+    {"$ref": "#/$defs/directZhFour"},
+    {"$ref": "#/$defs/indirectEnFour"},
+    {"$ref": "#/$defs/indirectZhFour"},
+    {"$ref": "#/$defs/crossRoleEnFour"},
+    {"$ref": "#/$defs/crossRoleZhFour"},
+    {"$ref": "#/$defs/systemEnFour"},
+    {"$ref": "#/$defs/systemZhFour"}
+  ],
+  "$defs": {
+    "family": {
+      "enum": ["authorized_qa", "direct_prompt_injection", "indirect_document_injection", "cross_role_retrieval", "system_prompt_inducement"]
+    },
+    "stringList": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 500}
+    },
+    "idList": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 128}
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario_id", "family", "language", "subject_id", "question", "corpus_version", "expected", "attack_target_ids", "forbidden_evidence_ids"],
+      "properties": {
+        "scenario_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "family": {"$ref": "#/$defs/family"},
+        "language": {"enum": ["en", "zh"]},
+        "subject_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+        "question": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "corpus_version": {"const": "synthetic-v1"},
+        "expected": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["must_include", "any_of", "must_not_include"],
+          "properties": {
+            "must_include": {"$ref": "#/$defs/stringList"},
+            "any_of": {"$ref": "#/$defs/stringList"},
+            "must_not_include": {"$ref": "#/$defs/stringList"}
+          }
+        },
+        "attack_target_ids": {"$ref": "#/$defs/idList"},
+        "forbidden_evidence_ids": {"$ref": "#/$defs/idList"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"family": {"const": "authorized_qa"}}, "required": ["family"]},
+          "then": {
+            "properties": {"attack_target_ids": {"minItems": 1, "maxItems": 1}},
+            "anyOf": [
+              {"properties": {"expected": {"properties": {"must_include": {"minItems": 1}}}}},
+              {"properties": {"expected": {"properties": {"any_of": {"minItems": 1}}}}}
+            ]
+          }
+        },
+        {
+          "if": {"not": {"properties": {"family": {"const": "authorized_qa"}}, "required": ["family"]}},
+          "then": {"properties": {"attack_target_ids": {"minItems": 1}, "forbidden_evidence_ids": {"minItems": 1}}}
+        }
+      ]
+    },
+    "authorizedQaThirty": {"$ref": "#/$defs/authorizedQaConstraint"},
+    "directEight": {"$ref": "#/$defs/directConstraint"},
+    "indirectEight": {"$ref": "#/$defs/indirectConstraint"},
+    "crossRoleEight": {"$ref": "#/$defs/crossRoleConstraint"},
+    "systemEight": {"$ref": "#/$defs/systemConstraint"},
+    "directEnFour": {"$ref": "#/$defs/directEnConstraint"},
+    "directZhFour": {"$ref": "#/$defs/directZhConstraint"},
+    "indirectEnFour": {"$ref": "#/$defs/indirectEnConstraint"},
+    "indirectZhFour": {"$ref": "#/$defs/indirectZhConstraint"},
+    "crossRoleEnFour": {"$ref": "#/$defs/crossRoleEnConstraint"},
+    "crossRoleZhFour": {"$ref": "#/$defs/crossRoleZhConstraint"},
+    "systemEnFour": {"$ref": "#/$defs/systemEnConstraint"},
+    "systemZhFour": {"$ref": "#/$defs/systemZhConstraint"},
+    "authorizedQaConstraint": {"properties": {"scenarios": {"contains": {"properties": {"family": {"const": "authorized_qa"}}, "required": ["family"]}, "minContains": 30, "maxContains": 30}}},
+    "directConstraint": {"properties": {"scenarios": {"contains": {"properties": {"family": {"const": "direct_prompt_injection"}}, "required": ["family"]}, "minContains": 8, "maxContains": 8}}},
+    "indirectConstraint": {"properties": {"scenarios": {"contains": {"properties": {"family": {"const": "indirect_document_injection"}}, "required": ["family"]}, "minContains": 8, "maxContains": 8}}},
+    "crossRoleConstraint": {"properties": {"scenarios": {"contains": {"properties": {"family": {"const": "cross_role_retrieval"}}, "required": ["family"]}, "minContains": 8, "maxContains": 8}}},
+    "systemConstraint": {"properties": {"scenarios": {"contains": {"properties": {"family": {"const": "system_prompt_inducement"}}, "required": ["family"]}, "minContains": 8, "maxContains": 8}}},
+    "directEnConstraint": {"properties": {"scenarios": {"contains": {"properties": {"family": {"const": "direct_prompt_injection"}, "language": {"const": "en"}}, "required": ["family", "language"]}, "minContains": 4, "maxContains": 4}}},
+    "directZhConstraint": {"properties": {"scenarios": {"contains": {"properties": {"family": {"const": "direct_prompt_injection"}, "language": {"const": "zh"}}, "required": ["family", "language"]}, "minContains": 4, "maxContains": 4}}},
+    "indirectEnConstraint": {"properties": {"scenarios": {"contains": {"properties": {"family": {"const": "indirect_document_injection"}, "language": {"const": "en"}}, "required": ["family", "language"]}, "minContains": 4, "maxContains": 4}}},
+    "indirectZhConstraint": {"properties": {"scenarios": {"contains": {"properties": {"family": {"const": "indirect_document_injection"}, "language": {"const": "zh"}}, "required": ["family", "language"]}, "minContains": 4, "maxContains": 4}}},
+    "crossRoleEnConstraint": {"properties": {"scenarios": {"contains": {"properties": {"family": {"const": "cross_role_retrieval"}, "language": {"const": "en"}}, "required": ["family", "language"]}, "minContains": 4, "maxContains": 4}}},
+    "crossRoleZhConstraint": {"properties": {"scenarios": {"contains": {"properties": {"family": {"const": "cross_role_retrieval"}, "language": {"const": "zh"}}, "required": ["family", "language"]}, "minContains": 4, "maxContains": 4}}},
+    "systemEnConstraint": {"properties": {"scenarios": {"contains": {"properties": {"family": {"const": "system_prompt_inducement"}, "language": {"const": "en"}}, "required": ["family", "language"]}, "minContains": 4, "maxContains": 4}}},
+    "systemZhConstraint": {"properties": {"scenarios": {"contains": {"properties": {"family": {"const": "system_prompt_inducement"}, "language": {"const": "zh"}}, "required": ["family", "language"]}, "minContains": 4, "maxContains": 4}}}
+  },
+  "description": "YAML instances are validated after YAML-to-JSON loading. Cross-record validation MUST enforce unique scenario_id, subject existence, evidence-ID existence, and exactly one authorized_qa attack_target_ids document reference for every one of the 30 corpus documents."
+}

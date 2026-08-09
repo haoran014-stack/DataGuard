@@ -1,0 +1,519 @@
+openapi: 3.1.0
+info:
+  title: DataGuard Local Experiment API
+  version: 1.0.0-stage0
+  description: >-
+    Target-only Stage 0 contract for a local, purely synthetic RAG experiment.
+    There is no API implementation in Stage 0 and no production authentication
+    claim. Raw questions, contexts, documents, and model output are not persisted.
+servers:
+  - url: http://127.0.0.1:8000
+    description: Local experiment default
+paths:
+  /v1/chat:
+    post:
+      operationId: chat
+      summary: Execute one synthetic question in baseline or guarded mode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+      responses:
+        '200':
+          description: >-
+            Answered response, or guarded fixed blocked reply. A detector block
+            is a successful normal response, not a Problem Details error.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ChatResponse'}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/ChatInputNotFound'}
+        '422': {$ref: '#/components/responses/ContextBudgetExceeded'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '502': {$ref: '#/components/responses/ModelProtocolError'}
+        '503': {$ref: '#/components/responses/DependencyUnavailable'}
+        '504': {$ref: '#/components/responses/ModelTimeout'}
+  /v1/evaluation-runs:
+    post:
+      operationId: createEvaluationRun
+      summary: Create a new 62-scenario paired evaluation run
+      description: >-
+        Every successful request creates a new run. Both baseline and guarded
+        execute automatically; there is no implicit idempotency or deduplication.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EvaluationRunRequest'}
+      responses:
+        '202':
+          description: A new run was created in queued state.
+          headers:
+            Location:
+              description: Relative URL of the created run.
+              schema: {type: string, pattern: '^/v1/evaluation-runs/[0-9a-f-]+$'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EvaluationRunAccepted'}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/ScenarioSetNotFound'}
+        '409': {$ref: '#/components/responses/ManifestMismatch'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/DependencyUnavailable'}
+  /v1/evaluation-runs/{run_id}:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    get:
+      operationId: getEvaluationRun
+      summary: Get run state and scenario progress
+      responses:
+        '200':
+          description: Current run representation.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EvaluationRun'}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/RunNotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StorageUnavailable'}
+  /v1/audit-events:
+    get:
+      operationId: listAuditEvents
+      summary: List minimized local experiment evidence
+      description: >-
+        Local synthetic-experiment interface; it makes no production
+        authentication or reviewer-authorization claim.
+      parameters:
+        - name: trace_id
+          in: query
+          schema: {$ref: '#/components/schemas/Uuid'}
+        - name: run_id
+          in: query
+          schema: {$ref: '#/components/schemas/Uuid'}
+        - name: subject_id
+          in: query
+          schema: {$ref: '#/components/schemas/SubjectId'}
+        - name: mode
+          in: query
+          schema: {$ref: '#/components/schemas/Mode'}
+        - name: event_type
+          in: query
+          schema: {$ref: '#/components/schemas/AuditEventType'}
+        - name: start_time
+          in: query
+          schema: {type: string, format: date-time}
+        - name: end_time
+          in: query
+          schema: {type: string, format: date-time}
+        - name: cursor
+          in: query
+          schema: {type: string, minLength: 1, maxLength: 512}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 200, default: 50}
+      responses:
+        '200':
+          description: Bounded page with no raw content or marker values.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AuditEventPage'}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StorageUnavailable'}
+  /v1/reports/{run_id}:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+      - name: format
+        in: query
+        required: false
+        schema: {type: string, enum: [json, html], default: json}
+    get:
+      operationId: getEvaluationReport
+      summary: Get a completed run report as JSON or standalone HTML
+      description: >-
+        Only completed runs have reports. queued and running return retryable
+        409 report_not_ready; failed and interrupted return non-retryable 409
+        report_unavailable. Partial reports do not exist.
+      responses:
+        '200':
+          description: Complete immutable report representation.
+          content:
+            application/json:
+              schema: {$ref: './report.schema.json'}
+            text/html:
+              schema:
+                type: string
+                description: Self-contained escaped rendering of the same report data.
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {$ref: '#/components/responses/RunNotFound'}
+        '409': {$ref: '#/components/responses/ReportNotReady'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/StorageUnavailable'}
+  /health:
+    get:
+      operationId: health
+      summary: Return bounded dependency and evidence-readiness status
+      responses:
+        '200':
+          description: API is responsive; readiness may be false.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/HealthResponse'}
+        '503':
+          description: API is responsive but a required component is unavailable.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/HealthResponse'}
+components:
+  parameters:
+    RunId:
+      name: run_id
+      in: path
+      required: true
+      schema: {$ref: '#/components/schemas/Uuid'}
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+    SubjectId:
+      type: string
+      minLength: 1
+      maxLength: 128
+      pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
+      description: Synthetic identity key resolved through the pinned identity table.
+    Role:
+      type: string
+      enum: [guest, employee, security_reviewer]
+    Classification:
+      type: string
+      enum: [public, internal, confidential]
+    Mode:
+      type: string
+      enum: [baseline, guarded]
+    Profile:
+      type: string
+      enum: [exploratory, evidence]
+    RunStatus:
+      type: string
+      enum: [queued, running, completed, failed, interrupted]
+    Outcome:
+      type: string
+      enum: [answered, blocked]
+    AttackFamily:
+      type: string
+      enum:
+        - direct_prompt_injection
+        - indirect_document_injection
+        - cross_role_retrieval
+        - system_prompt_inducement
+    ChatRequest:
+      type: object
+      additionalProperties: false
+      required: [subject_id, question, mode, corpus_version]
+      properties:
+        subject_id: {$ref: '#/components/schemas/SubjectId'}
+        question:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: Purely synthetic question; never persisted raw.
+        mode: {$ref: '#/components/schemas/Mode'}
+        corpus_version: {type: string, const: synthetic-v1}
+    ChatResponse:
+      type: object
+      additionalProperties: false
+      required: [reply, trace_id, outcome]
+      properties:
+        reply:
+          type: string
+          description: >-
+            When guarded outcome is blocked this is exactly: The response was
+            blocked by DataGuard policy. / 响应已被 DataGuard 防护策略阻断。
+        trace_id: {$ref: '#/components/schemas/Uuid'}
+        outcome: {$ref: '#/components/schemas/Outcome'}
+    EvaluationRunRequest:
+      type: object
+      additionalProperties: false
+      required: [scenario_set_version, profile]
+      properties:
+        scenario_set_version: {type: string, const: synthetic-v1}
+        profile: {$ref: '#/components/schemas/Profile'}
+    EvaluationRunAccepted:
+      type: object
+      additionalProperties: false
+      required: [run_id, status]
+      properties:
+        run_id: {$ref: '#/components/schemas/Uuid'}
+        status: {type: string, const: queued}
+    EvaluationRun:
+      type: object
+      additionalProperties: false
+      required:
+        - run_id
+        - status
+        - scenario_set_version
+        - profile
+        - completed_scenarios
+        - total_scenarios
+        - created_at
+        - updated_at
+      properties:
+        run_id: {$ref: '#/components/schemas/Uuid'}
+        status: {$ref: '#/components/schemas/RunStatus'}
+        scenario_set_version: {type: string, const: synthetic-v1}
+        profile: {$ref: '#/components/schemas/Profile'}
+        completed_scenarios: {type: integer, minimum: 0, maximum: 62}
+        total_scenarios: {type: integer, const: 62}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        completed_at:
+          oneOf: [{type: string, format: date-time}, {type: 'null'}]
+        failure_code:
+          oneOf: [{$ref: '#/components/schemas/ErrorCode'}, {type: 'null'}]
+    AuditEventType:
+      type: string
+      enum:
+        - chat_completed
+        - retrieval_completed
+        - output_detection_completed
+        - run_created
+        - run_state_changed
+        - report_generated
+    AuditOutcome:
+      type: string
+      enum: [answered, blocked, queued, running, completed, failed, interrupted]
+    AuditEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - event_id
+        - event_type
+        - occurred_at
+        - outcome
+        - retrieved_documents
+        - authorization_denials
+        - detections
+      properties:
+        event_id: {$ref: '#/components/schemas/Uuid'}
+        event_type: {$ref: '#/components/schemas/AuditEventType'}
+        occurred_at: {type: string, format: date-time}
+        trace_id:
+          oneOf: [{$ref: '#/components/schemas/Uuid'}, {type: 'null'}]
+        run_id:
+          oneOf: [{$ref: '#/components/schemas/Uuid'}, {type: 'null'}]
+        subject_id:
+          oneOf: [{$ref: '#/components/schemas/SubjectId'}, {type: 'null'}]
+        resolved_role:
+          oneOf: [{$ref: '#/components/schemas/Role'}, {type: 'null'}]
+        mode:
+          oneOf: [{$ref: '#/components/schemas/Mode'}, {type: 'null'}]
+        outcome: {$ref: '#/components/schemas/AuditOutcome'}
+        corpus_version:
+          oneOf: [{type: string, const: synthetic-v1}, {type: 'null'}]
+        retrieved_document_count: {type: integer, minimum: 0, maximum: 4}
+        unauthorized_context_count: {type: integer, minimum: 0, maximum: 4}
+        canary_match_count: {type: integer, minimum: 0}
+        protected_fragment_match_count: {type: integer, minimum: 0}
+        detector_action: {type: string, enum: [none, observed, blocked]}
+        retrieved_documents:
+          type: array
+          maxItems: 4
+          items: {$ref: '#/components/schemas/RetrievedDocumentEvidence'}
+        authorization_denials:
+          type: array
+          maxItems: 30
+          items: {$ref: '#/components/schemas/AuthorizationDenial'}
+        detections:
+          type: array
+          items: {$ref: '#/components/schemas/DetectionEvidence'}
+        error_code:
+          oneOf: [{$ref: '#/components/schemas/ErrorCode'}, {type: 'null'}]
+      description: >-
+        Minimized evidence only. Raw question/document/context/prompt/reply and
+        Canary/protected_fragment values and free-form reason text are forbidden.
+    RetrievedDocumentEvidence:
+      type: object
+      additionalProperties: false
+      required: [document_id, rank, similarity_score, authorized, included_in_context, denial_reason]
+      properties:
+        document_id: {type: string, minLength: 1, maxLength: 128}
+        rank: {type: integer, minimum: 1, maximum: 4}
+        similarity_score: {type: number, minimum: -1, maximum: 1}
+        authorized: {type: boolean}
+        included_in_context: {type: boolean}
+        denial_reason:
+          oneOf: [{type: string, const: role_not_allowed}, {type: 'null'}]
+    AuthorizationDenial:
+      type: object
+      additionalProperties: false
+      required: [document_id, reason]
+      properties:
+        document_id: {type: string, minLength: 1, maxLength: 128}
+        reason: {type: string, const: role_not_allowed}
+    DetectionEvidence:
+      type: object
+      additionalProperties: false
+      required: [type, evidence_id, violation, action]
+      properties:
+        type:
+          type: string
+          enum: [document_canary, system_canary, unauthorized_protected_fragment]
+        evidence_id: {type: string, minLength: 1, maxLength: 128}
+        violation: {type: boolean}
+        action: {type: string, enum: [observed, blocked]}
+      description: Opaque fixture evidence ID only; the marker literal is forbidden.
+    AuditEventPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          maxItems: 200
+          items: {$ref: '#/components/schemas/AuditEvent'}
+        next_cursor:
+          oneOf: [{type: string, maxLength: 512}, {type: 'null'}]
+    ErrorCode:
+      type: string
+      enum:
+        - invalid_request
+        - subject_not_found
+        - corpus_not_found
+        - scenario_set_not_found
+        - run_not_found
+        - report_not_ready
+        - report_unavailable
+        - ollama_unavailable
+        - generation_model_unavailable
+        - embedding_model_unavailable
+        - storage_unavailable
+        - model_timeout
+        - model_protocol_error
+        - experiment_manifest_mismatch
+        - context_budget_exceeded
+        - internal_error
+    ProblemDetails:
+      type: object
+      additionalProperties: false
+      required: [type, title, status, detail, code, trace_id]
+      properties:
+        type:
+          type: string
+          format: uri
+          pattern: '^https://dataguard\.local/problems/[a-z0-9_-]+$'
+        title: {type: string, minLength: 1, maxLength: 128}
+        status: {type: integer, minimum: 400, maximum: 599}
+        detail: {type: string, minLength: 1, maxLength: 512}
+        code: {$ref: '#/components/schemas/ErrorCode'}
+        trace_id: {$ref: '#/components/schemas/Uuid'}
+        retryable: {type: boolean}
+    ModelHealth:
+      type: object
+      additionalProperties: false
+      required: [tag, digest, available]
+      properties:
+        tag: {type: string, maxLength: 64}
+        digest:
+          oneOf:
+            - type: string
+              pattern: '^(sha256:)?[a-f0-9]{64}$'
+            - type: 'null'
+        available: {type: boolean}
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - api_version
+        - ollama
+        - storage
+        - evidence_readiness
+        - reasons
+        - checked_at
+      properties:
+        status: {type: string, enum: [healthy, degraded, unhealthy]}
+        api_version: {type: string, const: v1}
+        ollama:
+          type: object
+          additionalProperties: false
+          required: [status, version, generation_model, embedding_model]
+          properties:
+            status: {type: string, enum: [up, down]}
+            version:
+              oneOf: [{type: string, maxLength: 64}, {type: 'null'}]
+            generation_model:
+              allOf:
+                - $ref: '#/components/schemas/ModelHealth'
+                - type: object
+                  properties: {tag: {const: 'qwen2.5:3b-instruct'}}
+            embedding_model:
+              allOf:
+                - $ref: '#/components/schemas/ModelHealth'
+                - type: object
+                  properties: {tag: {const: 'qwen3-embedding:0.6b'}}
+        storage:
+          type: object
+          additionalProperties: false
+          required: [status, backend]
+          properties:
+            status: {type: string, enum: [up, down]}
+            backend: {type: string, enum: [sqlite, postgresql, unavailable]}
+        evidence_readiness: {type: boolean}
+        reasons:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum:
+              - ollama_unavailable
+              - ollama_version_mismatch
+              - generation_model_unavailable
+              - embedding_model_unavailable
+              - generation_model_digest_mismatch
+              - embedding_model_digest_mismatch
+              - storage_unavailable
+              - storage_not_postgresql
+              - experiment_manifest_not_loaded
+              - experiment_manifest_mismatch
+        checked_at: {type: string, format: date-time}
+  responses:
+    InvalidRequest:
+      description: Request does not match the public contract.
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/ProblemDetails'}}}
+    ChatInputNotFound:
+      description: Synthetic subject or corpus version does not exist.
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/ProblemDetails'}}}
+    ScenarioSetNotFound:
+      description: Synthetic scenario set version does not exist.
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/ProblemDetails'}}}
+    RunNotFound:
+      description: Run does not exist.
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/ProblemDetails'}}}
+    ReportNotReady:
+      description: >-
+        queued/running use retryable report_not_ready; failed/interrupted use
+        non-retryable report_unavailable. No partial report exists.
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/ProblemDetails'}}}
+    ManifestMismatch:
+      description: Locked evidence manifest or runtime settings do not match.
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/ProblemDetails'}}}
+    ContextBudgetExceeded:
+      description: Context cannot fit the locked safe budget.
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/ProblemDetails'}}}
+    ModelProtocolError:
+      description: Local Ollama returned an invalid bounded response.
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/ProblemDetails'}}}
+    DependencyUnavailable:
+      description: Ollama, a locked model, or storage is unavailable.
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/ProblemDetails'}}}
+    StorageUnavailable:
+      description: Local experiment storage is unavailable.
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/ProblemDetails'}}}
+    ModelTimeout:
+      description: Local model request timed out.
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/ProblemDetails'}}}
+    InternalError:
+      description: Unexpected bounded error with no raw content or stack detail.
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/ProblemDetails'}}}

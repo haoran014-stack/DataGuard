@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dataguard.local/schemas/corpus-v1.json",
+  "title": "DataGuard Synthetic Corpus",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["corpus_version", "identity_table_version", "synthetic", "documents"],
+  "properties": {
+    "corpus_version": {"const": "synthetic-v1"},
+    "identity_table_version": {"const": "synthetic-v1"},
+    "synthetic": {"const": true},
+    "documents": {
+      "type": "array",
+      "minItems": 30,
+      "maxItems": 30,
+      "items": {"$ref": "#/$defs/document"}
+    }
+  },
+  "allOf": [
+    {"$ref": "#/$defs/publicTen"},
+    {"$ref": "#/$defs/internalTen"},
+    {"$ref": "#/$defs/confidentialTen"},
+    {"$ref": "#/$defs/publicEnglishFive"},
+    {"$ref": "#/$defs/publicChineseFive"},
+    {"$ref": "#/$defs/internalEnglishFive"},
+    {"$ref": "#/$defs/internalChineseFive"},
+    {"$ref": "#/$defs/confidentialEnglishFive"},
+    {"$ref": "#/$defs/confidentialChineseFive"}
+  ],
+  "$defs": {
+    "role": {"enum": ["guest", "employee", "security_reviewer"]},
+    "evidenceId": {"type": "string", "minLength": 1, "maxLength": 128},
+    "canary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canary_id", "value"],
+      "properties": {
+        "canary_id": {"$ref": "#/$defs/evidenceId"},
+        "value": {"type": "string", "minLength": 1, "maxLength": 512}
+      }
+    },
+    "protectedFragment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fragment_id", "value", "allowed_roles"],
+      "properties": {
+        "fragment_id": {"$ref": "#/$defs/evidenceId"},
+        "value": {"type": "string", "minLength": 1, "maxLength": 512},
+        "allowed_roles": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/role"}
+        }
+      }
+    },
+    "document": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "doc_id",
+        "title",
+        "classification",
+        "allowed_roles",
+        "language",
+        "content",
+        "canaries",
+        "protected_fragments",
+        "source_kind",
+        "license",
+        "content_warning",
+        "adversarial_fixture"
+      ],
+      "properties": {
+        "doc_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "title": {"type": "string", "minLength": 1, "maxLength": 120},
+        "classification": {"enum": ["public", "internal", "confidential"]},
+        "allowed_roles": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/role"}
+        },
+        "language": {"enum": ["en", "zh"]},
+        "content": {"type": "string", "minLength": 1, "maxLength": 1200},
+        "canaries": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/canary"},
+          "description": "Document Canaries only. The system Canary is bound by the experiment manifest."
+        },
+        "protected_fragments": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/protectedFragment"}
+        },
+        "source_kind": {"const": "synthetic"},
+        "license": {"const": "MIT"},
+        "content_warning": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Human-readable warning that content is a synthetic security-test fixture."
+        },
+        "adversarial_fixture": {"type": "boolean"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"classification": {"const": "public"}}, "required": ["classification"]},
+          "then": {"properties": {"allowed_roles": {"const": ["guest", "employee", "security_reviewer"]}}}
+        },
+        {
+          "if": {"properties": {"classification": {"const": "internal"}}, "required": ["classification"]},
+          "then": {"properties": {"allowed_roles": {"const": ["employee", "security_reviewer"]}}}
+        },
+        {
+          "if": {"properties": {"classification": {"const": "confidential"}}, "required": ["classification"]},
+          "then": {"properties": {"allowed_roles": {"const": ["security_reviewer"]}}}
+        }
+      ]
+    },
+    "publicTen": {"properties": {"documents": {"contains": {"properties": {"classification": {"const": "public"}}, "required": ["classification"]}, "minContains": 10, "maxContains": 10}}},
+    "internalTen": {"properties": {"documents": {"contains": {"properties": {"classification": {"const": "internal"}}, "required": ["classification"]}, "minContains": 10, "maxContains": 10}}},
+    "confidentialTen": {"properties": {"documents": {"contains": {"properties": {"classification": {"const": "confidential"}}, "required": ["classification"]}, "minContains": 10, "maxContains": 10}}},
+    "publicEnglishFive": {"$ref": "#/$defs/publicEnConstraint"},
+    "publicChineseFive": {"$ref": "#/$defs/publicZhConstraint"},
+    "internalEnglishFive": {"$ref": "#/$defs/internalEnConstraint"},
+    "internalChineseFive": {"$ref": "#/$defs/internalZhConstraint"},
+    "confidentialEnglishFive": {"$ref": "#/$defs/confidentialEnConstraint"},
+    "confidentialChineseFive": {"$ref": "#/$defs/confidentialZhConstraint"},
+    "publicEnConstraint": {"properties": {"documents": {"contains": {"properties": {"classification": {"const": "public"}, "language": {"const": "en"}}, "required": ["classification", "language"]}, "minContains": 5, "maxContains": 5}}},
+    "publicZhConstraint": {"properties": {"documents": {"contains": {"properties": {"classification": {"const": "public"}, "language": {"const": "zh"}}, "required": ["classification", "language"]}, "minContains": 5, "maxContains": 5}}},
+    "internalEnConstraint": {"properties": {"documents": {"contains": {"properties": {"classification": {"const": "internal"}, "language": {"const": "en"}}, "required": ["classification", "language"]}, "minContains": 5, "maxContains": 5}}},
+    "internalZhConstraint": {"properties": {"documents": {"contains": {"properties": {"classification": {"const": "internal"}, "language": {"const": "zh"}}, "required": ["classification", "language"]}, "minContains": 5, "maxContains": 5}}},
+    "confidentialEnConstraint": {"properties": {"documents": {"contains": {"properties": {"classification": {"const": "confidential"}, "language": {"const": "en"}}, "required": ["classification", "language"]}, "minContains": 5, "maxContains": 5}}},
+    "confidentialZhConstraint": {"properties": {"documents": {"contains": {"properties": {"classification": {"const": "confidential"}, "language": {"const": "zh"}}, "required": ["classification", "language"]}, "minContains": 5, "maxContains": 5}}}
+  },
+  "description": "YAML instances are validated after YAML-to-JSON loading. Cross-record validation MUST enforce unique doc_id/canary_id/fragment_id values and require every protected fragment allowed_roles to equal its source document allowed_roles."
+}
