@@ -323,6 +323,27 @@ entries in the accepted Corpus order. The artifact SHA-256 is over those exact
 bytes. A later input or serialization change requires a new format identifier
 and architecture/compatibility review; it must not silently reuse v1.
 
+### S2-CD05 — canonical retrieved-document context and message budget
+
+For both modes, the selected documents are serialized in retrieval-result order
+as one compact JSON array with `ensure_ascii=false`, sorted object keys, compact
+separators, finite values, and exactly the fields `doc_id`, `title`,
+`classification`, and `content`. No separate role, Canary, protected-fragment,
+warning, license, or adversarial metadata field is added. Existing synthetic
+markers already inside `content` remain unchanged. Baseline inserts this exact
+JSON string into its single weak user payload through `documents_text`; guarded
+inserts the same string through `documents_json` in its distinct document-data
+user message. Retrieval order is never re-sorted during context assembly.
+
+The v1 context-budget input is the compact, sorted-key, UTF-8 JSON encoding of
+the complete ordered Ollama message array, where each element contains exactly
+`role` and `content`. The conservative budget is
+`serialized_message_bytes + num_predict`; it must be at most `num_ctx`
+(`512` and `8192` respectively). The question is embedded and inserted exactly
+as accepted, without normalization or trimming. A change to document fields,
+serialization, message ordering, or this budget formula requires architecture
+and compatibility review.
+
 ## 5. Explicit non-goals
 
 Stage 2 does not add production authentication/authorization, remote inference,
