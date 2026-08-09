@@ -308,11 +308,13 @@ and compatibility review.
 
 The v1 document embedding input is exactly `title + "\n\n" + content`, using
 the Unicode strings from the accepted Corpus without trimming, normalization,
-or identifier/classification prefixes. Canary values, protected-fragment
-values, warnings, and authorization metadata are not sent to the embedding
-model. They remain available only to later trusted context assembly/detection.
-The complete exact corpus-byte SHA-256 still binds the index, so any change to
-those excluded fields invalidates the index even though it is not embedded.
+redaction, or identifier/classification prefixes. No separate Canary,
+protected-fragment, warning, authorization, or other metadata field is appended.
+The accepted synthetic Corpus intentionally contains its Canary and protected
+fragment literals inside `content`; those existing content bytes therefore
+transit only to the separately managed local embedding model. They are never
+written to the index artifact. The complete exact corpus-byte SHA-256 binds the
+index, so any Corpus-field change invalidates it.
 
 The index format identifier is `dataguard-vector-index-v1`. Its persisted form
 is closed canonical JSON: UTF-8 without BOM, lexicographically sorted object
