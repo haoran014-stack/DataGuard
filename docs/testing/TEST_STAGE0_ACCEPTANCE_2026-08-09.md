@@ -230,3 +230,110 @@ MIT 只覆盖仓库自有材料、模型不随仓库分发且第三方许可独�
 
 本测试结论绑定到 `9c971e41d6e44f1cd0c8cd7351188314dac3295d`。测试目录的
 未提交报告变更不改变该待测快照；架构/发布决定仍由相应责任角色单独作出。
+
+## 11. Agent 上下文归并
+
+### 11.1 归并范围与权威顺序
+
+本节把旧测试 Agent `/root/tester` 在
+[`TEST_BASELINE_2026-08-09.md`](TEST_BASELINE_2026-08-09.md) 中留下的有效事实，
+与本计划及阶段 0 独立验收证据合并为后续测试的单一上下文。三份文档的用途如下：
+
+1. `TEST_BASELINE_2026-08-09.md`：只记录 DataGuard 首次出现前后的历史起点；
+2. `TEST_STAGE0_PLAN_2026-08-09.md`：记录独立验收方法、硬门槛和权威范围校正；
+3. 本文档：记录绑定到明确提交的实际执行证据、结论、残余限制和下一阶段约束。
+
+后续测试 Agent 应以 `docs/testing/` 中的工作文档承接上下文，同时每轮重新核实待测
+SHA、工作树和当前规范；历史记录不得被当作未经复核的当前事实。
+
+### 11.2 旧测试 Agent 的有效历史产出
+
+首次检查发生在 2026-08-09，当时 `E:\cybersecurity\DataGuard` 是普通空目录：
+
+- 没有普通或隐藏项目文件、`.git`、源码、测试目录、依赖清单或构建配置；
+- 没有 README、项目说明或适用的 `AGENTS.md`；
+- `E:\cybersecurity` 本身也不是 Git 工作树；同级 `AegisEval` 不属于 DataGuard
+  测试范围；
+- 因而当时无法识别项目版本、技术栈要求、测试入口、预期行为或质量门槛。
+
+旧 Agent 记录的测试机工具链快照如下：
+
+| 工具 | 当时检测值 |
+| --- | --- |
+| 操作系统 | Microsoft Windows NT 10.0.26200.0，x64 |
+| PowerShell | 5.1.26100.8875 |
+| Git | 2.35.1.windows.2 |
+| Python | `python` 3.12.7；`py` 启动器未配置默认 Python |
+| pytest | 7.4.4 |
+| Node.js / npm | Node.js 24.11.1；npm 9.6.2 |
+| .NET | SDK 5.0.416；Host 8.0.29；未发现 `global.json` |
+| Java | 21.0.2 LTS |
+
+该表是历史环境观测，不是 DataGuard 项目依赖或未来版本要求。下一阶段必须以届时锁定
+的依赖、官方命令和当前测试机实测为准，不能从此快照推导安装或运行方式。
+
+当时没有运行 unit、integration、E2E、performance 或 security 测试。原因是不存在
+源码、测试、依赖和构建入口；这既不是测试失败，也不是测试通过。在没有可执行入口时
+猜测框架命令不具备证据价值。
+
+### 11.3 `DG-TB-001` 起因与关闭
+
+历史缺陷 `DG-TB-001` 的起因是 **DataGuard 仓库内容缺失**：目标目录为空且不是
+Git 工作树，测试方无法取得分支/SHA、识别项目文件、构建依赖、预期行为、变更范围或
+回归面，因此初始基线只能判为 `BLOCKED`。其解除条件是把可识别的 DataGuard 仓库、
+项目说明和待测版本放入目标目录。
+
+当前处置：**`DG-TB-001 = CLOSED / RESOLVED`**。
+
+关闭证据包括：
+
+1. DataGuard Git 仓库、README、charter、architecture/security 文档、机器可读契约
+   和三类工作模板已经建立；
+2. 可识别的不可变待测提交
+   `9c971e41d6e44f1cd0c8cd7351188314dac3295d` 已提供；
+3. 本报告已独立核实该 SHA、`main` 和起始 clean 状态，并完成 3 YAML、5 JSON
+   Schema、OpenAPI、refs/links、正反例、敏感内容和禁止源码扫描；
+4. 阶段 0 已给出明确 **PASS**，且阻断/高严重度缺陷为 0。
+
+因此，早期“目录为空/非 Git 仓库”只能作为历史起点，**不得继续作为当前 blocker，
+也不得用来否定已经完成的阶段 0 证据**。若未来再次出现仓库内容缺失、SHA 不可识别
+或待测制品不可取得，应按当时事实建立新的阻塞记录，而不是把已关闭的
+`DG-TB-001` 原样复活。
+
+### 11.4 下一阶段必须继承的测试约束
+
+1. **保持独立。** 开发报告、架构结论或实现方自测不能替代测试 Agent 的命令、
+   退出码、反例和缺陷证据；测试方不修改产品实现来制造通过。
+2. **绑定版本。** 每轮先读取适用规则，记录仓库根、分支、完整 SHA、起始 clean/dirty
+   状态和既有变更；结论只能绑定到实际待测版本。
+3. **只使用合成边界。** 不得使用真实身份、个人/客户/生产数据、生产日志、真实凭据
+   或远程模型服务。`subject_id` 到合成角色的解析不是现实认证。
+4. **继承阶段 0 公共契约。** 默认回归基线包括恰好 6 endpoints；三角色和三分类；
+   4 个 AttackFamily；3 个 DetectionType；6 identities、30 documents、62 scenarios；
+   固定错误码、run/outcome/judgment、metrics 和 report 字段。任何变更都必须先有明确
+   compatibility/version 决策。
+5. **继承流程不变量。** Baseline 保持全 corpus、弱隔离、共享 detector observe-only；
+   guarded 必须严格按八步执行，尤其是 filter-before-retrieval、JSON 不可信文档边界、
+   message isolation、完整输出规范化检测、违规时全量丢弃和最小化审计，不得静默跳步、
+   重排、部分返回或 redaction。
+6. **继承模型与参数。** generation 为本地 Ollama `qwen2.5:3b-instruct`，embedding
+   为 `qwen3-embedding:0.6b`；temperature 0、seed 42、generation top-k 20、
+   top-p 0.9、context 8192、predict 512、retrieval top-k 4、stream false。实际 tag、
+   digest、Ollama version 和 embedding dimensions 必须进入证据。
+7. **Simulator 仅限 isolated unit tests。** Chat、integration、regression、exploratory
+   和 evidence 路径必须使用锁定的本地 Ollama 模型；依赖不可用时显式失败，不能静默
+   用 simulator 代替。Evidence profile 必须使用 PostgreSQL 和 strict manifest。
+8. **审计零自由文本。** 审计/报告/metrics/log/exception 证据不得包含 raw question、
+   document、context、prompt、reply、Canary 或 protected fragment；审计 reason/message
+   仍为禁止字段，失败只能使用共享 nullable ErrorCode。
+9. **落实 semantic validator。** 下一阶段必须负向验证本报告第 9 节列出的跨记录
+   唯一性/引用、角色集合、one-per-document、rate/gate 算术、状态/judgment、固定
+   blocked reply 和 Problem Details code/status/retryable 关系；结构 schema 通过不能
+   单独证明 evidence 有效。
+10. **区分合同测试与效果实验。** API/schema/错误/状态/失败路径可以在实现出现后先测；
+    ASR、guarded leak、授权 QA、false rejection 和 portfolio 只能由完整 62-scenario
+    evidence run 证明，基础设施失败必须记为 `indeterminate`，不得计作安全或通过。
+11. **使用官方入口。** 实现到达前不得猜测安装、build、lint、type-check 或测试命令；
+    实现到达后从锁文件、README 和 CI 确认入口，并记录命令、退出码、环境和证据位置。
+12. **结论纪律。** `PASS` 必须有可复现证据；未运行/无法运行使用 `BLOCKED` 或
+    `N/A` 并说明原因。阶段测试结论不等同于架构批准、portfolio 资格或发布批准。
