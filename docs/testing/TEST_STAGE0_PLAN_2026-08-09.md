@@ -5,11 +5,36 @@
 - 验收角色：独立测试 Agent
 - 验收阶段：阶段 0（仅章程、架构、契约与工作文档，不包含业务实现）
 - 建立时间：2026-08-09（Asia/Shanghai）
-- 当前状态：`PENDING_RETEST`
-- 当前结论：**尚未验收，不代表通过或失败**。开发工作仍在进行；必须在开发方明确交付后，对实际文件重新取证并逐项判定。
+- 当前状态：`PASS`
+- 当前结论：指定不可变快照 `9c971e41d6e44f1cd0c8cd7351188314dac3295d`
+  已完成独立阶段 0 复测并通过。完整命令、反例、覆盖、限制和结论见
+  [`TEST_STAGE0_ACCEPTANCE_2026-08-09.md`](TEST_STAGE0_ACCEPTANCE_2026-08-09.md)。
 - 目标目录：`E:\cybersecurity\DataGuard`
 - 适用仓库规则：截至首轮只读检查，`E:\AGENTS.md`、`E:\cybersecurity\AGENTS.md`、`E:\cybersecurity\DataGuard\AGENTS.md` 均不存在，因此没有发现额外的仓库级 `AGENTS.md` 约束。
 - 首轮只读快照：2026-08-09 13:59:24 +08:00；当时仅有三份早期协作基线文档，目标目录不是 Git 工作树。该快照只用于说明验收清单建立时的起点，不用于开发交付后的最终判定。
+
+## 最终复测范围校正
+
+本清单最初在权威 DataGuard 契约出现前建立，其中少量通用安全检查超出本项目
+阶段 0 的锁定范围。最终判定采用以下校正；这些项目不得误报为 blocker：
+
+- **现实认证/生产授权：`N/A`。** `subject_id` 到
+  `guest` / `employee` / `security_reviewer` 的映射仅是本地纯合成实验授权模型，
+  不是身份认证。阶段 0 不要求真实凭据、登录或生产 reviewer 授权；真实访问边界是
+  本地主机所有者。
+- **通用 severity/likelihood/处置状态枚举：`N/A`。** 权威 taxonomy 锁定的是
+  4 个 AttackFamily、3 个 DetectionType、结果/judgment、RAG 风险类别和证据 gates；
+  不要求另建通用严重度或可能性枚举。
+- **运行产品、Ollama、数据库与模型实验：`N/A`。** 阶段 0 只有文档、契约和模板，
+  明确没有可运行 API、fixture、Ollama/DB 实验或测量结果。本轮只做静态、解析、
+  schema 可满足性和恶意反例验证。
+- **实际 gate 达标/portfolio 作品证据：`N/A`。** 本轮验证 gate 与
+  `portfolio_eligible` 规则是否闭合、schema 是否可满足，不声称存在阶段 2 的实测结果。
+- **泛化云端、远程 API、生产部署要求：`N/A`。** 它们是明确非目标；本轮只检查
+  契约确实禁止远程模型、真实数据和生产连接。
+
+下方未逐项改写的原始复选框保留为测试设计记录；最终逐项结果以独立验收报告的
+结果矩阵为准。
 
 ## 独立性与判定原则
 
