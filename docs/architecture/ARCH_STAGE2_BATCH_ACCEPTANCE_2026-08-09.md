@@ -370,3 +370,85 @@ artifact digest 必须先验证 canonical bytes。所有纠偏均有直接回归
 产品提交 `fde3d4da3c31dc88c7cc79c5f2f1c2e3ae8cffba` 已通过核验主机指纹的 SSH
 非强制 push 上传；上传后本地 `HEAD` 与 `origin/main` 一致。本节架构验收记录须独立
 提交并上传后，才开始 A3b。
+
+## 7. Batch A3b — atomic vector-index filesystem store
+
+### 7.1 验收快照与结论
+
+- 产品提交：`c17d16063ab7d621a5792a1fc26d8fda03a1c2ec`
+- 提交主题：`feat: add atomic vector index store`
+- 覆盖需求：`S2-INDEX` 的路径安全、原子持久化、有界读取和 binding 状态
+- 架构结论：**ACCEPTED WITH CORRECTIONS CLOSED**
+
+本批不自动构建/重建索引，不调用 Ollama，也不包含 RAG、数据库、API 或评测逻辑。
+
+### 7.2 接受的实现
+
+- Store 显式接收 absolute existing project root 和 A1 closed settings，唯一目标为
+  `runtime_state_dir/vector-index.v1.json`；repr、facts 和错误均不暴露路径。
+- 构造仅执行必要只读 root resolve/lstat；import 与构造不创建目录或文件。显式
+  `prepare()` 才逐级创建目录，并在每一步复核 lexical/resolved containment、真实目录、
+  POSIX symlink 与 Windows reparse/junction 属性。
+- 写入先生成并验证 A3a canonical bytes/digest；随后在同目录使用随机 `O_EXCL` temp、
+  尽力 `0600`、完整 write/flush/fsync/close、再次校验 identity 与 parent/target，最后
+  以 `os.replace` 作为唯一原子提交点。
+- 提交点前任何失败保持旧 target exact bytes 不变并只清理本次可证明归属的 temp；
+  提交后只声称 target 是完整旧版或完整新版，绝不声称跨进程事务回滚。
+- 读取先 lstat/size，再 `os.open` 有界读取最多 `MAX+1`，通过 fstat/lstat identity、
+  regular-file 和 size 前后复核阻止换链、增长、短读及 partial read。
+- `load_validated` 严格按 safe read → canonical parse → Corpus/model binding 执行，
+  成功只返回 validated handle 与 digest/format/count/dimensions 最小事实。
+- missing、corrupt、stale、I/O 四种状态和错误码一一对应；错误不含 OS exception、
+  path、raw bytes、vector 或 marker。
+- 同一 store 实例由 `RLock` 序列化；跨进程只依赖 atomic replace 与读取 identity 检查，
+  不宣称 distributed lock。
+
+### 7.3 架构纠偏
+
+初始草案为 replace 后校验失败恢复旧文件，创建了临时 hardlink rollback anchor。该设计
+在崩溃时可能留下第二份向量制品，并扩大清理权限面。最终完全删除 hardlink/backup/
+rollback，把所有可执行验证移到 replace 前，并将 replace 明确定义为提交点。
+
+独立代码审阅又发现 raw fd 所有权缺口：exclusive temp 创建后若 `fstat` 或 `fdopen`
+失败，原始 fd 可能未关闭，Windows 下会阻止安全清理。最终实现显式追踪 raw fd；
+`fdopen` 成功后唯一转移给 stream，失败前则先关闭 raw fd，再基于可信 identity 清理。
+若 post-create `fstat` 本身失败，没有可信 identity 时宁可留下一个已关闭、随机命名的
+temp 并报告固定 I/O 错误，也不按未验证 pathname 删除；后续运维只能精确审计处理，
+不能通配清理。该极端残余不含文档或 marker 原文，但仍是本地向量制品。
+
+### 7.4 主架构验收证据
+
+| 检查 | 结果 |
+| --- | --- |
+| Store 定向测试 | `32 passed`，显式仓库内 basetemp |
+| 完整项目测试 | `431 passed`，独立显式 basetemp |
+| Stage 1 fixture/catalog CLI | exit 0，6/30/62，0 issue，三个 digest 不变 |
+| 路径边界 | absolute root、escape、component file、symlink/reparse、target type/长度均覆盖 |
+| 有界读取 | oversize 先验、MAX+1、short/growth、open identity 变化均拒绝 |
+| 原子写入 | create/write/flush/fsync/close/revalidate/replace 故障矩阵覆盖 |
+| fd 所有权 | fdopen 与 post-create fstat 失败均证明 fd 关闭、旧 target 不变 |
+| 四状态 | missing/corrupt/stale/io_error 互斥且内容安全 |
+| 并发 | 同实例并发 read/write 未观察到 partial bytes |
+| 变更边界 | 仅 vector-index store/export、测试及 Stage 2 开发记录 |
+| compile/whitespace | `compileall` 与 `git diff --check` 通过 |
+
+第一次主验收复跑使用系统默认 pytest 临时根，因权限产生 setup errors；同一复合 shell
+中后续成功命令曾掩盖 pytest 非零退出。该证据被明确作废。最终定向、全量、CLI、编译
+与 diff 均以独立命令/显式退出码重跑；两个验收 basetemp 在确认位于仓库 `.pytest_cache`
+且不是 reparse 后精确清理。
+
+### 7.5 残余与下一批门槛
+
+- RAG/runtime orchestrator 必须显式处理 missing/corrupt/stale：可以由明确操作 build 后
+  write，但不得在 chat/evaluation 请求中静默 fallback、删除或使用未绑定索引。
+- 真实 Ollama 索引构建尚未运行，因此仓库和 runtime_state_dir 中没有真实索引制品；
+  Stage 2 集成必须证明实际 model digest/dimension 与持久化 binding 一致。
+- 跨进程同时写没有分布式锁；当前支持目标是完整 old-or-new 和读取 identity 检查，
+  API 进程拓扑必须保持单 writer，或在未来另立架构决策。
+- 后续 RAG 只能消费 `LoadedVectorIndex.validated_index`，不能绕过 store/core binding gate。
+
+### 7.6 Git 交付状态
+
+产品提交 `c17d16063ab7d621a5792a1fc26d8fda03a1c2ec` 已通过核验主机指纹的 SSH
+非强制 push 上传；上传后本地 `HEAD` 与 `origin/main` 一致。本节架构验收记录须独立
+提交并上传后，才开始 RAG 批次。
