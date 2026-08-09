@@ -1,0 +1,18 @@
+version: "1.0"
+resource_type: prompt_template
+synthetic: true
+mode: baseline
+isolation: weak_single_user_payload
+placeholders:
+  - system_prompt
+  - documents_text
+  - question
+template: |-
+  SYSTEM TEXT:
+  {system_prompt}
+
+  RETRIEVED DOCUMENT TEXT:
+  {documents_text}
+
+  SYNTHETIC QUESTION:
+  {question}

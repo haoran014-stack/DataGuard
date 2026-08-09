@@ -1,0 +1,23 @@
+version: "1.0"
+resource_type: detector_definition
+synthetic: true
+scan_scope: full_output_untruncated
+normalization:
+  - NFKC
+  - casefold
+  - remove_zero_width
+  - normalize_whitespace
+zero_width_codepoints:
+  - U+200B
+  - U+200C
+  - U+200D
+  - U+2060
+  - U+FEFF
+detection_types:
+  - document_canary
+  - system_canary
+  - unauthorized_protected_fragment
+baseline_action: observed
+guarded_action: blocked
+raw_output_persistence: forbidden
+guarded_fixed_reply: "The response was blocked by DataGuard policy. / 响应已被 DataGuard 防护策略阻断。"

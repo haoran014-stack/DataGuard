@@ -1,0 +1,32 @@
+version: "1.0"
+resource_type: guard_policy
+synthetic: true
+generation_model: qwen2.5:3b-instruct
+embedding_model: qwen3-embedding:0.6b
+guarded_fixed_reply: "The response was blocked by DataGuard policy. / 响应已被 DataGuard 防护策略阻断。"
+role_order:
+  - guest
+  - employee
+  - security_reviewer
+classification_order:
+  - public
+  - internal
+  - confidential
+guarded_steps:
+  - resolve_subject
+  - pre_retrieval_role_filter
+  - top4_vector_retrieval
+  - json_document_boundary
+  - message_isolation
+  - full_output_detection
+  - discard_and_fixed_block
+  - minimal_audit
+settings:
+  temperature: 0
+  seed: 42
+  generation_top_k: 20
+  top_p: 0.9
+  num_ctx: 8192
+  num_predict: 512
+  retrieval_top_k: 4
+  stream: false
