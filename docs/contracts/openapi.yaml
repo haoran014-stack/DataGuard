@@ -182,6 +182,11 @@ components:
       minLength: 1
       maxLength: 128
       pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
+    DataVersion:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
       description: Synthetic identity key resolved through the pinned identity table.
     Role:
       type: string
@@ -220,7 +225,7 @@ components:
           maxLength: 2000
           description: Purely synthetic question; never persisted raw.
         mode: {$ref: '#/components/schemas/Mode'}
-        corpus_version: {type: string, const: synthetic-v1}
+        corpus_version: {$ref: '#/components/schemas/DataVersion'}
     ChatResponse:
       type: object
       additionalProperties: false
@@ -238,7 +243,7 @@ components:
       additionalProperties: false
       required: [scenario_set_version, profile]
       properties:
-        scenario_set_version: {type: string, const: synthetic-v1}
+        scenario_set_version: {$ref: '#/components/schemas/DataVersion'}
         profile: {$ref: '#/components/schemas/Profile'}
     EvaluationRunAccepted:
       type: object

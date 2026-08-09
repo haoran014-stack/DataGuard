@@ -76,6 +76,13 @@ when their document classification is within the resolved role's cumulative
 authorization. This detector blocks or allows a whole output; v1 performs no
 partial redaction.
 
+Request-side `corpus_version` and `scenario_set_version` accept a bounded data
+version identifier so syntactically valid but unavailable versions can reach
+the existing `corpus_not_found` and `scenario_set_not_found` 404 semantics.
+Successful v1 responses, fixtures, manifests, and generated evidence remain
+locked to `synthetic-v1`; this is a backward-compatible request-domain
+clarification, not support for another dataset.
+
 ## Evidence profiles and gates
 
 Exploratory work may use SQLite. An `evidence` run MUST use PostgreSQL and a

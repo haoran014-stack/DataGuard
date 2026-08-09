@@ -344,6 +344,18 @@ as accepted, without normalization or trimming. A change to document fields,
 serialization, message ordering, or this budget formula requires architecture
 and compatibility review.
 
+### S2-CD06 — request version identifiers and not-found reachability
+
+The original OpenAPI request properties used `const: synthetic-v1` while the
+same contract and architecture required `corpus_not_found` and
+`scenario_set_not_found` for unavailable versions. A constant request schema
+made those 404 branches unreachable because validation would return
+`invalid_request` first. Request-side corpus/scenario-set versions therefore
+use one bounded `DataVersion` syntax. Successful v1 responses and all accepted
+fixtures/manifests remain constant `synthetic-v1`. This only broadens valid
+request syntax so existing not-found semantics are reachable; it does not add
+another dataset or change any response shape.
+
 ## 5. Explicit non-goals
 
 Stage 2 does not add production authentication/authorization, remote inference,
