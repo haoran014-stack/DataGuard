@@ -297,3 +297,76 @@ Canary evidence 可被直接构造为 `violation=false`。最终实现采用受�
 产品提交 `0e842ccff699cd5331e02bf4818936411a26cf7f` 已通过核验主机指纹的 SSH
 非强制 push 上传；上传后本地 `HEAD` 与 `origin/main` 一致。本节架构验收记录须以
 独立提交上传并再次核对远端 SHA 后，才开始下一开发批次。
+
+## 6. Batch A3a — validated vector-index core
+
+### 6.1 验收快照与结论
+
+- 产品提交：`fde3d4da3c31dc88c7cc79c5f2f1c2e3ae8cffba`
+- 提交主题：`feat: add validated vector index core`
+- 覆盖需求：`S2-INDEX` 的构建、规范制品、绑定门与确定性内存检索子集
+- 架构结论：**ACCEPTED WITH CLARIFICATION AND CORRECTIONS CLOSED**
+
+本批不包含文件系统持久化、索引自动重建、RAG 模式编排、API、数据库或评测运行。
+
+### 6.2 接受的实现
+
+- 一次调用生产 `OllamaClient.embed`，按已接受 Corpus 顺序提交 30 个精确
+  `title + "\n\n" + content` 输入，并传入探测到的实际 embedding dimension。
+- `dataguard-vector-index-v1` closed/frozen artifact 绑定 Corpus exact-byte SHA、
+  30 个有序文档 ID、固定 embedding tag、实际本地 digest、维度与对应向量。
+- artifact 只包含绑定元数据、opaque 文档 ID 和有限 numeric vectors；动态扫描证明
+  不包含 title、content、Canary 或 protected-fragment literal。
+- Canonical JSON 固定 UTF-8/no-BOM、sorted keys、compact separators、一个 final LF、
+  finite numbers、Corpus entry 顺序和 64 MiB 上限；digest 入口拒绝非 canonical bytes。
+- 向量维度限制为 `1..16384`，在遍历和 norm 计算前执行；拒绝 bool、NaN、Inf、空、
+  维度漂移与 zero/invalid norm。
+- 只有同时验证 format、Corpus digest/order、模型 tag/digest、维度及全部向量的私有
+  token handle 才能调用检索；handle 和 artifact 默认 repr 隐藏 ID/entries/vectors。
+- 检索只计算调用方预先提供的 eligible ID，候选最多 30、唯一且必须存在；稳定 cosine
+  score 被约束为 `[-1,1]`，按 score 降序再 doc ID 升序，至少四项返回 exact top 4。
+- 索引模块不了解 role、baseline 或 guarded；后续 RAG 必须负责构造预过滤候选集。
+
+### 6.3 架构澄清与纠偏
+
+开发前的 `S2-CD04` 初稿同时要求 exact `title+content` 和 marker 不进入 embedding。
+动态检查证明 30/30 document content 已包含其 Canary 和 protected fragment literal，两个
+要求不可同时满足。架构选择保留精确输入与实验真实性：这些合成 marker 仅瞬时进入
+单独管理的本地 Ollama，不进入索引制品；不额外 append 独立 marker/权限元数据。修订
+已通过提交 `588517c28e3f6953aebedb07810e133f27bfed8a` 先行上传。
+
+主架构预审另关闭六项实现边界：30 次单项调用合并为一次有界 30-input 调用；直接向量
+长度前置限制；eligible 数量在 set 分配前限制；默认 repr 隐藏向量；删除未使用 hook；
+artifact digest 必须先验证 canonical bytes。所有纠偏均有直接回归测试。
+
+### 6.4 主架构验收证据
+
+| 检查 | 结果 |
+| --- | --- |
+| Vector-index 定向测试 | `61 passed` |
+| 完整项目测试 | `399 passed` |
+| Stage 1 fixture/catalog CLI | exit 0，6/30/62，0 issue，三个 digest 不变 |
+| Embedding request | 单次 30 项、顺序和 exact input；actual dimension 传入 |
+| Artifact minimization | 动态 Corpus 全 title/content/Canary/fragment literal 均不存在 |
+| Canonical codec | BOM/CRLF/重复键/pretty/trailing/unknown/raw/nonfinite/oversize 均拒绝 |
+| Binding gate | Corpus bytes/order、model tag/digest、dimension/vector 漂移均拒绝 |
+| Retrieval | pre-filter、tie-break、top-4/<4、重复运行和 eligible 顺序无关均覆盖 |
+| Error/repr | 原始 bytes/vector/doc marker sentinel 不回显 |
+| 变更边界 | 仅 vector_index package、对应单元测试及 Stage 2 开发记录 |
+| compile/whitespace | `compileall` 与 `git diff --check` 通过 |
+
+### 6.5 残余与下一批门槛
+
+- A3b 必须把 canonical bytes 原子写入 A1 `runtime_state_dir` 下固定文件，验证 project-root
+  containment，拒绝 symlink/junction/reparse-point 逃逸，并在任何失败后保留旧有效索引。
+- A3b load 必须先有界读取并执行 canonical codec，再进行 Corpus/model binding；损坏、
+  缺失、陈旧与依赖不可用必须是固定失败/显式重建状态，不能静默使用旧索引。
+- 后续 RAG 必须从同一 validated handle 检索；guarded 的 allowed ID 集必须在调用
+  `retrieve` 前由来源文档授权生成，baseline 则传完整 30-ID 集。
+- 本批不产生真实索引文件、真实模型 digest 或任何实验结果。
+
+### 6.6 Git 交付状态
+
+产品提交 `fde3d4da3c31dc88c7cc79c5f2f1c2e3ae8cffba` 已通过核验主机指纹的 SSH
+非强制 push 上传；上传后本地 `HEAD` 与 `origin/main` 一致。本节架构验收记录须独立
+提交并上传后，才开始 A3b。
