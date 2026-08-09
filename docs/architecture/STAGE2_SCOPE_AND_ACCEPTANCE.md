@@ -304,6 +304,23 @@ that might technically fit, but it cannot silently overrun or truncate the
 locked control context. Any later tokenizer-based change requires architecture
 and compatibility review.
 
+### S2-CD04 — canonical document embedding and index bytes
+
+The v1 document embedding input is exactly `title + "\n\n" + content`, using
+the Unicode strings from the accepted Corpus without trimming, normalization,
+or identifier/classification prefixes. Canary values, protected-fragment
+values, warnings, and authorization metadata are not sent to the embedding
+model. They remain available only to later trusted context assembly/detection.
+The complete exact corpus-byte SHA-256 still binds the index, so any change to
+those excluded fields invalidates the index even though it is not embedded.
+
+The index format identifier is `dataguard-vector-index-v1`. Its persisted form
+is closed canonical JSON: UTF-8 without BOM, lexicographically sorted object
+keys, compact separators, one final LF, finite JSON numbers only, and document
+entries in the accepted Corpus order. The artifact SHA-256 is over those exact
+bytes. A later input or serialization change requires a new format identifier
+and architecture/compatibility review; it must not silently reuse v1.
+
 ## 5. Explicit non-goals
 
 Stage 2 does not add production authentication/authorization, remote inference,
