@@ -452,3 +452,91 @@ temp 并报告固定 I/O 错误，也不按未验证 pathname 删除；后续运
 产品提交 `c17d16063ab7d621a5792a1fc26d8fda03a1c2ec` 已通过核验主机指纹的 SSH
 非强制 push 上传；上传后本地 `HEAD` 与 `origin/main` 一致。本节架构验收记录须独立
 提交并上传后，才开始 RAG 批次。
+
+## 8. Batch A4a — deterministic RAG planning
+
+### 8.1 验收快照与结论
+
+- 产品提交：`a1da868f9362593cd67416afbd75a48f2cd257d3`
+- 提交主题：`feat: add deterministic Stage 2 RAG planning`
+- 覆盖需求：`S2-RAG` 的请求解析、成对查询向量、检索前授权、top-4 检索、
+  canonical 文档上下文、消息隔离及 `S2-CD05`/`S2-CD06`
+- 架构结论：**ACCEPTED WITH CORRECTIONS CLOSED; REMOTE DELIVERY PENDING**
+
+本批只接受从已验证输入到待生成消息的确定性规划。它不调用 generation、detector、
+audit/storage、HTTP API 或 evaluation，因此不构成完整 RAG 链、真实模型实验或
+Stage 2 总验收。
+
+### 8.2 接受的实现
+
+- `corpus_version`、`subject_id` 和 question 按公共契约顺序验证；有效但不存在的
+  corpus/subject 分别使用稳定 404 语义，question 保留全部原始 Unicode 与空白。
+- 同一 `QueryEmbedding` 受控、冻结并绑定 embedding model tag、digest 和 dimensions；
+  paired baseline/guarded 复用同一 handle，不执行第二次 embedding。
+- baseline 将全部 30 个文档 ID 交给同一 A3a 检索器；guarded 按来源文档
+  `allowed_roles` 在相似度计算前生成 10/20/30 候选集，禁止检索后过滤。
+- 检索结果必须恰好为四个已知、唯一且 eligible 的文档。授权拒绝只包含 opaque
+  document ID 与固定 `role_not_allowed` 原因，并保持 Corpus 顺序。
+- 两种模式共享同一四字段 canonical 文档 JSON，严格保留 retrieval order；baseline
+  仅生成一个弱 user payload，guarded 仅生成 system/user/user 三条隔离消息。
+- 上下文预算按 ordered `{role,content}` 消息数组的 compact、sorted-key UTF-8 JSON
+  精确计数；只接受 `message_bytes + 512 <= 8192`，不截断、不删除、不重排。
+- `RagPlan` repr 不暴露 question、document content、system prompt、marker、vector 或
+  model digest；本批无日志、数据库、audit 或 report 写入。
+
+### 8.3 架构纠偏
+
+主架构预审关闭了四类边界偏差：
+
+1. `AuthorizationDenial.doc_id` 从无界字符串收紧为 strict 1..128 contract ID，且
+   Pydantic 错误隐藏输入原值。
+2. 公共 canonical-document helper 从 duck typing 收紧为恰好四个唯一 `Document`，
+   并对 `model_construct`/unchecked-copy 对象重新执行完整模型校验。
+3. 公共 message-budget helper 对每条 `OllamaMessage` 重新校验，缺字段、非法 role、
+   超长或非字符串 content 统一映射为内容安全的 manifest mismatch。
+4. Planner factory 不再直接信任普通 dataclass 资源字段；五个 `ResourceArtifact`、
+   SHA 形状与对应资源模型均重新校验，并重新执行 system marker 跨资源隔离检查。
+
+另关闭 A2b 与公共契约的兼容缺口：长度非零的 whitespace-only question 现在原样进入
+本地 embedding request，不 trim/normalize。`ValidatedVectorIndex` 只增加 planner
+所需的只读 binding facts，默认 repr 仍隐藏 digest、ordered IDs 和 vectors。
+
+### 8.4 主架构验收证据
+
+| 检查 | 结果 |
+| --- | --- |
+| A4a/A2b/A3a 独立定向回归 | `199 passed in 3.57s`，全新仓库内 basetemp |
+| 完整项目独立回归 | `473 passed in 19.29s`，全新仓库内 basetemp |
+| Stage 1 fixture/catalog CLI | exit 0，6/30/62，0 issue，三份 fixture digest 不变 |
+| Request 与角色矩阵 | malformed/not-found 顺序、三角色 10/20/30 guarded 候选均覆盖 |
+| Paired 检索 | 同一 query handle；baseline 30 候选；guarded 检索前授权；同一 retrieve |
+| 上下文隔离 | 真实 JSON escaping、四字段/order、baseline 1 message、guarded 3 messages |
+| 预算边界 | exact pass、one-byte-over reject、multibyte UTF-8、无截断均覆盖 |
+| 范围隔离 | fail-fast spy 证明无 chat、detector 或 VectorIndexStore 调用 |
+| 内容安全 | forged Document/message/resource、raw sentinel、repr/error 不回显均覆盖 |
+| 编译与格式 | validation、`compileall`、`git diff --check` 均 exit 0 |
+| 文本与链接 | 10/10 UTF-8/no-BOM/LF/final-LF/no trailing whitespace；48 local links，0 missing |
+| 凭据与契约边界 | 变更文件 credential heuristic 0 命中；`docs/contracts/` 与 Stage 2 scope 未改 |
+
+开发侧第一次完整回归因系统 pytest 临时目录不可访问而产生 setup errors；该证据未被
+采信。开发侧和主架构验收均改用不同的、全新仓库内 basetemp 独立重跑并显式检查
+退出码，所有产品断言通过。
+
+### 8.5 残余与下一批门槛
+
+- A4b 必须只消费本批 `RagPlan.messages`，使用同一已验证 question/query handle 完成
+  paired generation，并把完整输出交给唯一 A2c detector；不得重新 embedding、重新
+  拼装上下文或引入 fallback。
+- Guarded violation 必须在任何 audit/storage/report 写入前丢弃 raw output；baseline
+  必须保留成功原输出且只记录 observe-only evidence。
+- 当前仍无真实 Ollama generation、真实 index build、数据库/API/evaluation 证据；
+  任何攻击成功率或防护效果声明继续禁止。
+- Hashed transitive lock 仍是 Stage 2 产品候选前的 `S2-ENV` 硬门槛。
+
+### 8.6 Git 交付状态
+
+产品提交已在本地创建且工作树产品部分干净。SSH 远端在本批开始前已通过只读
+`ls-remote` 验证，并确认 `origin/main` 为 `1c540d8d3e17e8429974ac69ff4b546a2a39bfeb`。
+本次 push 被 Codex 外部执行额度限制拒绝，未向远端发送数据；这不是 GitHub SSH
+认证失败。产品提交与本节独立架构记录提交必须由用户终端执行一次
+`git push origin main` 上传并核对远端 SHA 后，才能开始 A4b。
