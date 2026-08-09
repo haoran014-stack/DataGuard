@@ -150,3 +150,73 @@ baseline/guarded 对照有效性。
 
 产品提交 `81b111f1f5da4002500d2cb080094ccc2f7870a9` 已通过普通非强制
 `git push origin main` 上传。提交时本地 `HEAD` 与 `origin/main` 一致，工作树 clean。
+
+## 4. Batch A2b — bounded local Ollama adapter
+
+### 4.1 验收快照与结论
+
+- 产品提交：`d95036c887e81f2a8ae1d8122752f7bae62d1c40`
+- 提交主题：`feat: add bounded local Ollama adapter`
+- 覆盖需求：`S2-OLLAMA` 的本地协议适配、健康事实、embedding/chat 与失败边界
+- 架构结论：**ACCEPTED WITH CORRECTION CLOSED**
+
+本批次只接受 Ollama 内部适配器，不代表健康 API、向量索引、RAG、检测、存储、
+评测或报告已实现；也不构成真实本地模型兼容性证据。
+
+### 4.2 接受的实现
+
+- 异步客户端只使用 A1 已验证的 loopback 根地址、超时和响应大小上限；导入、构造
+  和关闭不发起模型请求，并要求调用方显式管理生命周期。
+- `probe()` 只调用 `/api/version`、`/api/tags` 和 `/api/show`，返回最小化且不可变的
+  Ollama 版本、两个固定模型 tag/digest 与 embedding dimension。
+- `embed()` 固定 `qwen3-embedding:0.6b`、`truncate=false`，校验输入数量、总长度、
+  输出数量、有限数值及维度一致性。
+- `chat()` 固定 `qwen2.5:3b-instruct`、非流式、`think=false`、无 tools，并发送锁定的
+  temperature、seed、top-k、top-p、上下文与生成长度。
+- 所有响应均先校验状态、长度与唯一 JSON Content-Type，再有界流式读取正文；JSON
+  拒绝重复键、非对象、非有限值和未知字段。
+- 运行时没有 simulator、fake、重试或远端 fallback；测试 transport 只存在于单元测试。
+- 仅暴露五个固定且内容安全的内部错误码；URL、prompt、响应正文及底层异常不进入
+  错误对象、字符串或字典。
+
+### 4.3 架构纠偏
+
+初始实现有两个直接构造/协议边界缺口：健康事实模型没有自行锁定 digest/tag，成功
+响应也没有在读取正文前验证 JSON 媒体类型。若绕过 HTTP parser 直接构造事实，或
+loopback 服务返回 HTML/错误媒体类型，边界可能发生漂移。
+
+纠偏后，digest 必须匹配可选 `sha256:` 加 64 位小写十六进制；健康事实交叉验证固定
+generation/embedding tag 且拒绝交换、重复与错误 tag。所有成功响应必须恰有一个
+`application/json` Content-Type，仅可附带单一 UTF-8 charset；缺失、重复、非 JSON、
+非 UTF-8 或额外参数均在读取正文前被拒绝。404 与其他非 2xx 的既有安全映射保持不变，
+并且不读取错误正文。两项偏差均已关闭。
+
+### 4.4 主架构验收证据
+
+| 检查 | 结果 |
+| --- | --- |
+| Ollama adapter 定向测试 | `96 passed` |
+| 完整项目测试 | `294 passed` |
+| Stage 1 fixture/catalog CLI | exit 0，6/30/62，0 issue，三个 digest 不变 |
+| 直接事实构造 | 非法 digest、交换/相同/错误 tag 均最小化拒绝 |
+| HTTP 内容边界 | Content-Length、累计 bytes、唯一 JSON Content-Type 与 UTF-8 参数均闭合 |
+| 失败正文边界 | 404、非 2xx 与错误 Content-Type 均在读取正文前失败 |
+| 请求契约 | probe/embed/chat 的 method、path、body、模型与生成参数固定 |
+| 变更边界 | 仅 Ollama package、对应单元测试及 Stage 2 开发记录 |
+| 公共契约/资源/依赖 | 无修改 |
+| whitespace | `git diff --check` 通过 |
+
+### 4.5 残余与下一批门槛
+
+- 本批仅使用内存 fake transport；尚未证明宿主机 Ollama 版本、实际模型 digest、
+  embedding dimension 或真实响应与适配器兼容。真实集成证据留在 Stage 2 集成门。
+- 后续健康服务必须只返回最小化事实，不能暴露 URL、prompt 或 `/api/show` 原始内容。
+- 后续 index/RAG 必须复用 probe 得到的维度并显式关闭客户端，不得新增 simulator、
+  自动下载模型或远端 fallback。
+- Hashed transitive lock 仍属于 `S2-ENV` 未完成项。
+
+### 4.6 Git 交付状态
+
+产品提交已经在本地生成。首次上传时，`gh auth status` 明确报告账号
+`haoran014-stack` 的现有 token 已失效；Git 因无可用凭据而停止，未改写提交或远端。
+在重新授权并验证 `origin/main` 包含该产品提交和本验收记录之前，不开始下一开发批次。
