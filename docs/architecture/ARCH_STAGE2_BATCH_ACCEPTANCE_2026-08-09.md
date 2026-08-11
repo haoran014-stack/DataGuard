@@ -690,3 +690,85 @@ credential-like `user:password@...` DSN 与卫生证据不一致。最终 Postgr
 
 产品提交 `1950a64` 仅保存在本地。按照用户当前交付策略，本节架构验收也创建独立本地提交，
 Stage 2 总实现、独立测试与总架构验收完成前不执行任何 push。
+
+## 11. Batch A5b — run lifecycle and immutable complete reports
+
+### 11.1 验收快照与结论
+
+- 产品提交：`2c16921`
+- 提交主题：`feat: persist evaluation runs and complete reports`
+- 覆盖需求：`S2-STORAGE` 的 run lifecycle、startup recovery 与 complete report
+  persistence，以及 `S2-EVAL` 的“只允许完整报告一次性持久化”边界
+- 架构结论：**ACCEPTED WITH CONTRACT CLARIFICATION AND CORRECTIONS CLOSED;
+  LOCAL-ONLY DELIVERY**
+
+本批不包含 HTTP API、evaluation executor、HTML renderer、metrics、Compose 或真实 PostgreSQL
+运行证据。
+
+### 11.2 接受的实现
+
+- `EvaluationRun` 与 `StoredReport` 为 closed/frozen 模型；运行状态严格限制为 queued、
+  running、completed、failed、interrupted，且所有时间统一归一到 UTC。
+- 每次 create 生成新的 queued run；queued 只能 start 为 running。Running progress 每次只增加
+  一个完成 pair，最多持久化到 61；62 只能与完整报告在同一完成事务中出现。
+- Terminal 状态不可重复转换。Failed 必须有 failure code 且无 completed time/report；completed
+  必须为 62、`completed_at == updated_at`、无 failure code 且恰有一份 report。
+- Startup recovery 在一个事务中锁定全部 running runs，先验证它们均无 report，再统一转为
+  interrupted；queued 和 terminal runs 保持不变。任一漂移或写故障使整批回滚。
+- Report 在写入前依次通过 Draft 2020-12 + FormatChecker、完整 semantic validator、run/profile/
+  scenario-set/storage binding，以及 `generated_at == completed_at` 的 UTC 时刻绑定。
+- 唯一持久化事实源是 canonical UTF-8 JSON：sorted keys、compact separators、finite JSON、
+  no BOM/CR、一个 final LF 和 exact-byte SHA-256。Schema/semantic/binding/time 任一失败均零写入。
+- Complete 将 report insert 与 run 的 completed/62 transition 放在同一数据库事务；任一语句
+  故障均回滚到 running/61 且无 report。
+- Report 读取重新验证 canonical bytes、digest、report/run binding 与完整 report 语义；queued/
+  running 返回 `report_not_ready`，failed/interrupted 返回 `report_unavailable`，missing 返回
+  `run_not_found`，从不返回 partial report。
+- Report schema 仅在首次显式 `prepare_schema` 前加载和编译，数据库准备成功后才缓存；constructor
+  与 import 无 I/O，complete/get 不重复读取可变 contract 文件。
+
+### 11.3 契约澄清与架构纠偏
+
+公共契约要求 interrupted 必须带非空 failure code，但闭合的 16 码目录没有专用 process-restart
+代码。主架构将 startup recovery 固定映射为 `internal_error`：它不虚构输入、模型、存储或报告
+原因，也不新增公共枚举。该澄清只锁定本项目 producer 语义，不改变 OpenAPI shape。
+
+主架构预审还关闭了三项证据完整性缺口：早于运行创建的 report `generated_at` 曾可被接受；
+损坏数据库中的 running+report 曾可能在恢复后留下 interrupted+report；report validator 的说明
+称只在显式准备时加载，但实现曾在 complete/get 请求路径重复读取文件。最终实现采用更严格的
+`generated_at == completed_at` UTC 绑定、恢复前全量 no-report 检查，以及 prepare-time 私有缓存；
+相同 UTC 时刻的非零 offset 表示仍被正确接受。
+
+### 11.4 主架构独立验收证据
+
+| 检查 | 结果 |
+| --- | --- |
+| A5b + A5a 独立定向回归 | `57 passed in 36.61s`，仓库内独立 basetemp |
+| 完整项目独立回归 | `547 passed in 57.26s` |
+| Stage 1 fixture/catalog CLI | exit 0；6/30/62；0 issue；三份 digest 不变 |
+| 状态转换 | 非法转换矩阵、terminal immutability、时间倒退、progress 0..61 均覆盖 |
+| 并发与恢复 | 同实例并发 progress 串行；多 running 原子恢复与故障整批回滚均覆盖 |
+| 完成事务 | report insert/run update 两处故障均恢复为 running/61 且零 report |
+| Report gates | schema、semantic、binding、backend、NaN、早/晚时间均零写入拒绝 |
+| Contract 生命周期 | 坏 contract 不建 artifacts；prepare 后删除 contract 不影响当前缓存实例 |
+| 四态读取与漂移 | completed/not-ready/unavailable/missing、run/report DB drift 均覆盖 |
+| 编译与文本 | compileall、`git diff --check`、10 文件 UTF-8/no-BOM/LF 均通过 |
+| 内容与契约边界 | credential/raw-column 扫描通过；contracts、scope、依赖均未修改 |
+
+### 11.5 残余与下一批门槛
+
+- HTML 尚未实现，也未持久化第二份表示。API 批次必须只从已重新验证的 canonical JSON 生成
+  deterministic standalone HTML，对所有动态值做完整 escaping，禁止 script、外部资源和调用方
+  提供任意 HTML。
+- SQLite 的进程内 `RLock` 不提供跨进程 run scheduler 锁。探索配置必须保持单 writer；evidence
+  配置的并发/恢复结论必须由后续真实 PostgreSQL transaction/locking 复验支持。
+- PostgreSQL 仍只有 lazy construction 和 DDL compile 证据；evidence profile 仍不可验收。
+- Report validator 缓存属于已准备 repository 的启动快照。后续 application composition 必须先完成
+  manifest/resource/index binding，再显式 prepare repository；运行中不得热替换 contract。
+- 下一批 application/API 只能消费 repository 的受控方法与固定错误，不得直接操作表、跳过
+  lifecycle、生成 partial report 或在请求路径静默执行 startup recovery。
+
+### 11.6 Git 交付状态
+
+产品提交 `2c16921` 仅保存在本地。本节架构验收创建独立本地提交；按照用户当前交付策略，
+Stage 2 总实现、唯一测试 agent 的独立总验收和主架构总验收完成前不执行 push。
