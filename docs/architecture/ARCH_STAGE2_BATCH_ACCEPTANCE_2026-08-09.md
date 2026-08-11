@@ -962,3 +962,56 @@ errors；该结果未被采信。开发侧与主架构最终证据均使用新�
 
 产品提交 `f9e740b` 仅保存在本地。本节架构验收创建独立本地提交；按照用户当前策略，Stage 2
 总实现、唯一测试 agent 独立总验收与主架构总验收完成前不执行 push。
+
+## 14. Batch A7b — evaluation runner and bounded scheduler
+
+### 14.1 结论
+
+- 产品提交：`cd15dad`
+- 提交主题：`feat: run paired evaluations with bounded scheduling`
+- 架构结论：**ACCEPTED; PROCESS-LOCAL UNIT EVIDENCE; LOCAL-ONLY DELIVERY**
+
+本批将 A7a 的纯计算核、A4 的 paired RAG 和 A5b 的运行状态机连接为受控后台执行路径；
+仍不构成生产应用组合、真实 Ollama/PostgreSQL 集成或实验结果。
+
+### 14.2 接受的运行语义
+
+- Runner factory 绑定同一完整性校验后的 EvaluationContext、planner、executor、detector、
+  Ollama client settings、repository、clock 和 trace provider，构造与 import 均无 I/O。
+- 严格按 accepted fixture 顺序执行 62 个场景：每场景一次 exact embedding、一次 `plan_pair`，
+  再依次执行 baseline、guarded，共 62 次 embedding、62 次 paired planning 和 124 次 generation。
+- Shared query 四类失败一次形成双模式 indeterminate；generation 四类失败可保留单模式结果；
+  context budget、manifest/index、storage、report validation 与 internal fault 均使 run failed 且无报告。
+- 前 61 个完整 pair 各调用一次 `advance_run`；第 62 对不单独推进，而是构造完整报告后调用
+  一次 `complete_run`，由 A5b 在同一事务中完成 running/61 到 completed/62 与唯一报告写入。
+- 取消始终传播；Runner 只尽力执行 `fail_run(internal_error)`。若存储同时失败，run 可暂留
+  running，并明确交给后续 application startup recovery；Runner 不调用全局 recovery。
+- Scheduler 固定单进程并发 1、registry 上限 64；每次 schedule 都创建独立任务且不去重，
+  完成回调消费固定异常，shutdown 关闭接纳、取消并等待全部自有任务。
+
+### 14.3 主架构独立证据
+
+| 检查 | 结果 |
+| --- | --- |
+| A7b/A7a/A5b 独立定向 | `78 passed in 39.87s`，独立安全 basetemp |
+| 完整项目独立回归 | `670 passed in 81.96s`，独立安全 basetemp |
+| Stage 1 fixture CLI | exit 0；6/30/62；0 issue；三个 digest 不变 |
+| 编译与差异 | compileall、`git diff --check` 通过；contracts、scope、依赖未修改 |
+| 精确调用序列 | 62 embed、62 plan-pair、baseline→guarded 124 execute、61 advance、1 complete |
+| 失败矩阵 | shared、单模式 generation、context budget、manifest、storage、report gate、internal 均覆盖 |
+| 取消与恢复边界 | fail 成功、fail 失败仍传播、shutdown cancellation 与 task 回收均覆盖 |
+| 调度边界 | concurrency 1、capacity 64、overflow 拒绝、无去重、done exception 被消费 |
+
+### 14.4 残余门槛
+
+- 当前 repository、transport、clock 均为 unit fake；不得引用为真实模型、数据库或 API 证据。
+- `complete_run` 若已在一个不可信 repository 内提交却返回伪造模型，Runner 无法跨信任边界回滚；
+  A5b concrete repository 的事务和 closed return 是生产组合必须绑定的受控边界。
+- 下一批生产组合必须显式执行 repository prepare、startup recovery、index load/revalidation、
+  Ollama health probe、服务构造和 graceful shutdown；请求 handler 不得隐式执行这些动作。
+- 调度器不是分布式锁。SQLite 探索运行保持单 writer；PostgreSQL evidence profile 仍需真实复验。
+
+### 14.5 Git 状态
+
+产品提交 `cd15dad` 与本验收均仅保存到本地。Stage 2 全部实现、唯一测试 agent 独立总验收和
+主架构总验收完成前不执行 push。
