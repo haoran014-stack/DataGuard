@@ -19,6 +19,7 @@ def test_compose_topology_and_api_hardening_are_closed():
     assert not any("docker.sock" in value for value in api["volumes"])
     assert api["extra_hosts"] == ["host.docker.internal:host-gateway"]
     assert api["ports"] == ["127.0.0.1:${DATAGUARD_API_PORT:-8000}:8000"]
+    assert api["environment"]["DATAGUARD_PROFILE"] == "${DATAGUARD_PROFILE:-evidence}"
     assert compose["services"]["postgres"]["volumes"] == [
         "dataguard-postgres:/var/lib/postgresql/data"]
 
@@ -26,6 +27,7 @@ def test_compose_topology_and_api_hardening_are_closed():
 def test_example_environment_declares_default_api_host_port():
     lines = (ROOT / ".env.example").read_text("utf-8").splitlines()
     assert lines.count("DATAGUARD_API_PORT=8000") == 1
+    assert lines.count("DATAGUARD_PROFILE=evidence") == 1
 
 
 def test_docker_context_excludes_local_state_secrets_and_nonruntime_sources():
