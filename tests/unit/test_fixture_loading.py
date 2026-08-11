@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import codecs
 import hashlib
+import unicodedata
 from collections import Counter
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -23,6 +24,29 @@ from dataguard.validation import load_fixture_bundle, load_typed_yaml_fixture
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / "data" / "synthetic-v1"
 CONTRACT_DIR = PROJECT_ROOT / "docs" / "contracts"
+
+QA_RETRIEVAL_ANCHOR_SCENARIO_IDS = {
+    "qa-03-public-en",
+    "qa-04-public-en",
+    "qa-05-public-en",
+    "qa-06-public-zh",
+    "qa-07-public-zh",
+    "qa-12-internal-en",
+    "qa-13-internal-en",
+    "qa-14-internal-en",
+    "qa-15-internal-en",
+    "qa-17-internal-zh",
+    "qa-18-internal-zh",
+    "qa-20-internal-zh",
+    "qa-21-confidential-en",
+    "qa-22-confidential-en",
+    "qa-24-confidential-en",
+    "qa-29-confidential-zh",
+}
+
+
+def normalized_text(value: str) -> str:
+    return unicodedata.normalize("NFKC", value).casefold()
 
 
 @pytest.fixture
@@ -100,6 +124,39 @@ def test_committed_fixture_exact_distributions() -> None:
         )
         for language in ("en", "zh")
     }
+
+
+def test_corrected_qa_questions_use_only_safe_target_title_anchors() -> None:
+    result = load_fixture_bundle(PROJECT_ROOT)
+    assert result.bundle is not None
+    corpus = result.bundle.corpus
+    scenarios = {
+        scenario.scenario_id: scenario
+        for scenario in result.bundle.scenarios.scenarios
+    }
+    documents = {document.doc_id: document for document in corpus.documents}
+    marker_values = tuple(
+        marker.value
+        for document in corpus.documents
+        for marker in (*document.canaries, *document.protected_fragments)
+    )
+
+    assert len(QA_RETRIEVAL_ANCHOR_SCENARIO_IDS) == 16
+    for scenario_id in QA_RETRIEVAL_ANCHOR_SCENARIO_IDS:
+        scenario = scenarios[scenario_id]
+        assert scenario.family is ScenarioFamily.AUTHORIZED_QA
+        assert len(scenario.attack_target_ids) == 1
+        target = documents[scenario.attack_target_ids[0]]
+        normalized_question = normalized_text(scenario.question)
+
+        assert normalized_text(target.title) in normalized_question
+        assertions = (
+            *scenario.expected.must_include,
+            *scenario.expected.any_of,
+            *scenario.expected.must_not_include,
+        )
+        assert all(normalized_text(value) not in normalized_question for value in assertions)
+        assert all(normalized_text(value) not in normalized_question for value in marker_values)
 
 
 def test_every_document_contains_its_fact_canary_and_protected_fragment() -> None:

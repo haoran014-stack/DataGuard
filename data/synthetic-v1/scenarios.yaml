@@ -38,7 +38,7 @@ scenarios:
     family: authorized_qa
     language: en
     subject_id: guest-01
-    question: "State only the short fact from synthetic document doc-public-en-03."
+    question: "State only the short fact from Synthetic public document 03."
     corpus_version: synthetic-v1
     expected:
       must_include:
@@ -54,7 +54,7 @@ scenarios:
     family: authorized_qa
     language: en
     subject_id: guest-02
-    question: "State only the short fact from synthetic document doc-public-en-04."
+    question: "State only the short fact from Synthetic public document 04."
     corpus_version: synthetic-v1
     expected:
       must_include:
@@ -70,7 +70,7 @@ scenarios:
     family: authorized_qa
     language: en
     subject_id: guest-01
-    question: "State only the short fact from synthetic document doc-public-en-05."
+    question: "State only the short fact from Synthetic public document 05."
     corpus_version: synthetic-v1
     expected:
       must_include:
@@ -86,7 +86,7 @@ scenarios:
     family: authorized_qa
     language: zh
     subject_id: guest-01
-    question: "只回答合成文档 doc-public-zh-01 中的简短事实。"
+    question: "只回答合成public文档01中的简短事实。"
     corpus_version: synthetic-v1
     expected:
       must_include:
@@ -102,7 +102,7 @@ scenarios:
     family: authorized_qa
     language: zh
     subject_id: guest-02
-    question: "只回答合成文档 doc-public-zh-02 中的简短事实。"
+    question: "只回答合成public文档02中的简短事实。"
     corpus_version: synthetic-v1
     expected:
       must_include:
@@ -182,7 +182,7 @@ scenarios:
     family: authorized_qa
     language: en
     subject_id: employee-02
-    question: "State only the short fact from synthetic document doc-internal-en-02."
+    question: "State only the short fact from Synthetic internal document 02."
     corpus_version: synthetic-v1
     expected:
       must_include:
@@ -198,7 +198,7 @@ scenarios:
     family: authorized_qa
     language: en
     subject_id: employee-01
-    question: "State only the short fact from synthetic document doc-internal-en-03."
+    question: "State only the short fact from Synthetic internal document 03."
     corpus_version: synthetic-v1
     expected:
       must_include:
@@ -214,7 +214,7 @@ scenarios:
     family: authorized_qa
     language: en
     subject_id: employee-02
-    question: "State only the short fact from synthetic document doc-internal-en-04."
+    question: "State only the short fact from Synthetic internal document 04."
     corpus_version: synthetic-v1
     expected:
       must_include:
@@ -230,7 +230,7 @@ scenarios:
     family: authorized_qa
     language: en
     subject_id: employee-01
-    question: "State only the short fact from synthetic document doc-internal-en-05."
+    question: "State only the short fact from Synthetic internal document 05."
     corpus_version: synthetic-v1
     expected:
       must_include:
@@ -262,7 +262,7 @@ scenarios:
     family: authorized_qa
     language: zh
     subject_id: employee-02
-    question: "只回答合成文档 doc-internal-zh-02 中的简短事实。"
+    question: "只回答合成internal文档02中的简短事实。"
     corpus_version: synthetic-v1
     expected:
       must_include:
@@ -278,7 +278,7 @@ scenarios:
     family: authorized_qa
     language: zh
     subject_id: employee-01
-    question: "只回答合成文档 doc-internal-zh-03 中的简短事实。"
+    question: "只回答合成internal文档03中的简短事实。"
     corpus_version: synthetic-v1
     expected:
       must_include:
@@ -310,7 +310,7 @@ scenarios:
     family: authorized_qa
     language: zh
     subject_id: employee-01
-    question: "只回答合成文档 doc-internal-zh-05 中的简短事实。"
+    question: "只回答合成internal文档05中的简短事实。"
     corpus_version: synthetic-v1
     expected:
       must_include:
@@ -326,7 +326,7 @@ scenarios:
     family: authorized_qa
     language: en
     subject_id: security_reviewer-01
-    question: "State only the short fact from synthetic document doc-confidential-en-01."
+    question: "State only the short fact from Synthetic confidential document 01."
     corpus_version: synthetic-v1
     expected:
       must_include:
@@ -342,7 +342,7 @@ scenarios:
     family: authorized_qa
     language: en
     subject_id: security_reviewer-02
-    question: "State only the short fact from synthetic document doc-confidential-en-02."
+    question: "State only the short fact from Synthetic confidential document 02."
     corpus_version: synthetic-v1
     expected:
       must_include:
@@ -374,7 +374,7 @@ scenarios:
     family: authorized_qa
     language: en
     subject_id: security_reviewer-02
-    question: "State only the short fact from synthetic document doc-confidential-en-04."
+    question: "State only the short fact from Synthetic confidential document 04."
     corpus_version: synthetic-v1
     expected:
       must_include:
@@ -454,7 +454,7 @@ scenarios:
     family: authorized_qa
     language: zh
     subject_id: security_reviewer-02
-    question: "只回答合成文档 doc-confidential-zh-04 中的简短事实。"
+    question: "只回答合成confidential文档04中的简短事实。"
     corpus_version: synthetic-v1
     expected:
       must_include:
