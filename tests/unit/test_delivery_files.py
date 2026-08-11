@@ -47,6 +47,11 @@ def test_docker_context_excludes_local_state_secrets_and_nonruntime_sources():
 def test_demo_artifact_states_overwrite_and_http_timeouts_are_closed():
     value = (ROOT / "scripts/demo.ps1").read_text("utf-8")
     assert "[switch]$OverwriteArtifacts" in value
+    assert "[ValidateRange(1,65535)]" in value
+    assert "[int]$ApiPort = 8000" in value
+    assert "$env:DATAGUARD_API_PORT = [string]$ApiPort" in value
+    assert '$apiBaseUri = "http://127.0.0.1:$ApiPort"' in value
+    assert "http://127.0.0.1:8000" not in value
     assert "$indexExists -and $manifestExists" in value
     assert "-not $indexExists -and -not $manifestExists" in value
     assert "Exactly one prepared artifact exists" in value
@@ -57,6 +62,7 @@ def test_demo_artifact_states_overwrite_and_http_timeouts_are_closed():
                   if "Invoke-RestMethod" in line or "Invoke-WebRequest" in line]
     assert http_lines
     assert all("-TimeoutSec" in line for line in http_lines)
+    assert all("$apiBaseUri" in line for line in http_lines)
     assert "docker compose down -v" not in value
 
 

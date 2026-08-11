@@ -188,7 +188,9 @@ never builds, replaces, repairs, or falls back to a simulator.
 
 Copy `.env.example` to `.env` and replace its local synthetic placeholders.
 `.env` is consumed by Compose only; it is not imported into the host PowerShell
-process. Compose contains exactly `api` and `postgres`, uses a named PostgreSQL
+process. The API host bind remains loopback-only and defaults to port `8000`;
+set `DATAGUARD_API_PORT` in the local Compose environment when that port is in
+use. Compose contains exactly `api` and `postgres`, uses a named PostgreSQL
 volume, mounts prepared artifacts read-only, drops all API capabilities, enables
 `no-new-privileges`, and never mounts the Docker socket.
 
@@ -218,7 +220,10 @@ deadlines. It never pulls models or deletes the database volume.
 If both prepared artifacts already exist, the script verifies and reuses them;
 if both are absent, it creates and verifies them. A one-artifact state stops for
 manual inspection. Replacement occurs only with the explicit
-`scripts/demo.ps1 -OverwriteArtifacts` switch.
+`scripts/demo.ps1 -OverwriteArtifacts` switch. The demo defaults to host port
+`8000`; when it conflicts with another local service, use
+`scripts/demo.ps1 -ApiPort 18000`. The script passes that value to Compose and
+derives every host API request from the same loopback base URI.
 
 Deterministic model/embedding simulators are permitted only for isolated unit
 tests. `/v1/chat`, integration/regression, exploratory, and evidence paths must
