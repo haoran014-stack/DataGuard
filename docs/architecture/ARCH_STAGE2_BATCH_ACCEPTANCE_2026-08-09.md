@@ -1072,3 +1072,64 @@ errors；该结果未被采信。开发侧与主架构最终证据均使用新�
 ### 15.5 Git 状态
 
 产品提交 `a552637` 与本验收均只保存在本地；统一 push 继续推迟到 Stage 2 总验收之后。
+
+## 16. P2 — reproducible local delivery candidate
+
+### 16.1 结论
+
+- 产品提交：`1ac7296`（`feat: deliver reproducible local stage2 runtime`）
+- LF 纠偏：`1a3e32e`（`chore: lock delivery files to lf`）
+- 架构结论：**STAGE 2 IMPLEMENTATION CANDIDATE ACCEPTED; EXTERNAL INTEGRATION NOT RUN;
+  INDEPENDENT TOTAL ACCEPTANCE PENDING**
+
+当前主机缺少 Docker、Compose、Ollama 和 PostgreSQL，且 11434 不可用。因此本节只接受实现与
+离线交付，不接受 V1 evidence、真实安全效果、portfolio 或简历结论。
+
+### 16.2 接受的交付
+
+- 新增 side-effect-free ASGI factory、默认 `127.0.0.1` server 与统一 artifact CLI：fixture validation、
+  real-Ollama index build、strict manifest generation 和 prepared-artifact verification。API startup 只读并
+  重验证 artifact，绝不隐式 build、replace、repair 或 simulator fallback。
+- `host.docker.internal` 仅在精确显式 opt-in 时允许；同一开关才使容器 server 绑定 `0.0.0.0`。
+  其他 host、HTTPS、userinfo、path、query、fragment 继续被拒绝。
+- Compose 恰好包含 API 与 PostgreSQL；Ollama 在宿主机。API 非 root、只读根、只读 artifact mount、
+  drop all capabilities、no-new-privileges、无 Docker socket；PostgreSQL 使用命名 volume。
+- Docker build context 使用默认排除全部的 allowlist，只放行 Dockerfile、source、synthetic data、
+  contracts 与 Linux runtime lock。Docker runtime 仅以 `--require-hashes` 安装依赖并通过 source layout
+  启动，避免 PEP 517 的额外网络构建依赖。
+- 三个窄平台锁覆盖 CPython 3.12 Linux runtime、Linux test overlay 和 Windows dev；具体 requirement
+  均为 exact pin + SHA-256，禁止 URL/editable/index/trusted-host。README 主路径不再浮动解析依赖。
+- PowerShell demo 不拉模型、不默认删除 volume，检查两个 exact tag，安全复用成对 artifacts；只有
+  `-OverwriteArtifacts` 才替换。Health/evaluation 有 deadline，所有 HTTP 调用有 timeout。
+- README 已覆盖问题/非目标、威胁模型、架构、数据/许可证/内容警告、安装、Ollama、artifact、
+  Compose/PostgreSQL、六 API、复现实验、指标、限制、安全边界和明确 NOT RUN 状态。
+
+### 16.3 主架构独立证据
+
+| 检查 | 结果 |
+| --- | --- |
+| P2 config/CLI/delivery/production 定向 | `64 passed in 23.18s` |
+| 完整项目回归 | `711 passed in 112.14s`，独立安全 basetemp |
+| Stage 1 unified CLI | exit 0；6/30/62；0 issue；三个 fixture digest 不变 |
+| Linux runtime lock | offline wheel cache + `--dry-run --require-hashes --no-index` exit 0 |
+| Linux dev lock | offline wheel cache + `--dry-run --require-hashes --no-index` exit 0 |
+| Windows dev lock | offline wheel cache + `--dry-run --require-hashes --no-index` exit 0 |
+| PowerShell demo | AST parse exit 0；safe artifact branches、deadlines、timeouts 由静态测试锁定 |
+| Docker/Compose static | exactly two services、host Ollama、nonroot/read-only/cap-drop/no socket、context allowlist |
+| 配置边界 | default loopback；container gateway requires exact bool+host pair；manifest path bounded |
+| 文本交付 | compileall/diff check 通过；新增类型经 `.gitattributes` 固定 LF，blob/worktree 无 CR |
+| 契约边界 | public contracts 与 Stage 2 scope 未修改；六路由无 metrics route |
+
+### 16.4 外部证据状态
+
+以下均为 **NOT RUN / external prerequisite**，不是 PASS，也不是实现缺陷：Docker build、Compose
+config/runtime、PostgreSQL health/persistence/recovery、真实 Ollama probe/show/embed/chat、30 文档索引、
+strict evidence manifest、baseline/guarded chat、62-pair evidence run、audit/report 和容器故障演示。
+
+Stage 2 scope 允许外部依赖缺失时接受 evaluation-ready implementation，但独立测试必须复核明确
+dependency failure，且在真实 evidence report 通过全部 gates 前禁止 measured/V1/portfolio/résumé claim。
+
+### 16.5 下一门槛与 Git 状态
+
+下一步仅使用唯一测试 agent 对当前 clean candidate 做独立 Stage 2 总验收；随后主架构逐项总审计。
+产品与验收仍只在本地，按用户策略在总验收结束后统一 push。
