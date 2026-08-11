@@ -12,7 +12,7 @@ from .reporting import build_evaluation_report
 from .runner import (
     MAX_EVALUATION_CONCURRENCY, MAX_SCHEDULED_TASKS, EvaluationRunner,
     EvaluationRunnerError, EvaluationScheduleError, EvaluationScheduler,
-    create_evaluation_runner, create_evaluation_scheduler,
+    ScheduleReservation, create_evaluation_runner, create_evaluation_scheduler,
 )
 
 __all__ = [
@@ -22,5 +22,6 @@ __all__ = [
     "evaluate_shared_query_failure",
     "EvaluationRunner", "EvaluationRunnerError", "EvaluationScheduleError",
     "EvaluationScheduler", "MAX_EVALUATION_CONCURRENCY", "MAX_SCHEDULED_TASKS",
+    "ScheduleReservation",
     "create_evaluation_runner", "create_evaluation_scheduler",
 ]

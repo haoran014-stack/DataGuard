@@ -144,7 +144,7 @@ def _handler(context, counters: Counter[str], *, embed_status: int = 200,
 
 
 async def _components(context, repository: FakeRepository, counters: Counter[str],
-                      **handler_options):
+                      operation_sink=None, **handler_options):
     client = OllamaClient(context.settings,
         transport=httpx.MockTransport(_handler(context, counters, **handler_options)))
     planner = create_rag_planner(context.bundle.identities, context.bundle.corpus,
@@ -153,7 +153,7 @@ async def _components(context, repository: FakeRepository, counters: Counter[str
     executor = create_rag_executor(client,
         build_whole_output_detector(context.resources, context.bundle.corpus))
     runner = create_evaluation_runner(context, planner, executor, repository,
-                                      FakeClock(), TraceIds())
+                                      FakeClock(), TraceIds(), operation_sink=operation_sink)
     return client, planner, executor, runner
 
 
@@ -292,6 +292,39 @@ def test_early_fatal_matrix_is_content_safe_and_writes_no_report(
         assert repository.report is None and repository.run.status is RunStatus.FAILED
         assert RAW not in str(error.value) + repr(error.value) + repr(error.value.as_dict())
     asyncio.run(exercise())
+
+
+def test_operation_sink_counts_embed_before_planning_fatal_and_single_generation_failure(
+        context, monkeypatch) -> None:
+    class Sink:
+        def __init__(self): self.operations = []; self.started = []
+        def record_operation(self, operation, result): self.operations.append((operation, result))
+        def record_run_started(self, run_id, profile): self.started.append((run_id, profile))
+
+    async def planning_failure() -> None:
+        sink = Sink(); counters: Counter[str] = Counter(); repository = FakeRepository()
+        client, planner, _executor, runner = await _components(
+            context, repository, counters, operation_sink=sink)
+        async def fail_plan(*args, **kwargs):
+            raise RagPlanningError(RagPlanningErrorCode.EXPERIMENT_MANIFEST_MISMATCH)
+        monkeypatch.setattr(type(planner), "plan_pair", fail_plan)
+        async with client:
+            with pytest.raises(EvaluationRunnerError): await runner.run(RUN_ID)
+        assert sink.started == [(RUN_ID, "evidence")]
+        assert sink.operations == [("embedding", "success")]
+
+    async def generation_failure() -> None:
+        sink = Sink(); counters: Counter[str] = Counter(); repository = FakeRepository()
+        client, _planner, _executor, runner = await _components(
+            context, repository, counters, operation_sink=sink, first_chat_timeout=True)
+        async with client: await runner.run(RUN_ID)
+        assert sink.operations.count(("embedding", "success")) == 62
+        assert sink.operations.count(("generation", "success")) == 123
+        assert sink.operations.count(("generation", "timeout")) == 1
+
+    asyncio.run(planning_failure())
+    monkeypatch.undo()
+    asyncio.run(generation_failure())
 
 
 def test_complete_commit_with_forged_return_is_internal_and_not_rollbackable(context) -> None:

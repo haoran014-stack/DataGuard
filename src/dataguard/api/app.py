@@ -159,12 +159,13 @@ def _date(value: str) -> datetime:
         raise PublicProblem("invalid_request") from None
 
 
-def create_app(services: ApplicationServices, report_contract: ReportContract) -> FastAPI:
+def create_app(services: ApplicationServices, report_contract: ReportContract,
+               *, lifespan: Any = None) -> FastAPI:
     """Create the six-route API shell without touching any external dependency."""
 
-    if services is None or type(report_contract) is not ReportContract:
+    if services is None or not isinstance(report_contract, ReportContract):
         raise ValueError("application dependencies are invalid")
-    app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
+    app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None, lifespan=lifespan)
 
     @app.exception_handler(PublicProblem)
     async def public_problem_handler(_request: Request, error: PublicProblem) -> JSONResponse:

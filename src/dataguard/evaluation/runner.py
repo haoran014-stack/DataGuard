@@ -30,6 +30,7 @@ MAX_EVALUATION_CONCURRENCY = 1
 MAX_SCHEDULED_TASKS = 64
 _RUNNER_TOKEN = object()
 _SCHEDULER_TOKEN = object()
+_RESERVATION_TOKEN = object()
 _GENERATION_FAILURE_CODES = frozenset({
     "ollama_unavailable", "generation_model_unavailable", "model_timeout",
     "model_protocol_error",
@@ -52,6 +53,32 @@ class RunRepository(Protocol):
 class RunnerClock(Protocol):
     def now(self) -> datetime: ...
     def monotonic_ns(self) -> int: ...
+
+
+class ScenarioEvidenceSink(Protocol):
+    def record_scenario(self, run_id: str, evidence: ScenarioEvidence) -> None: ...
+
+
+class _NoopScenarioEvidenceSink:
+    __slots__ = ()
+
+    def record_scenario(self, run_id: str, evidence: ScenarioEvidence) -> None:
+        return None
+
+
+class OperationResultSink(Protocol):
+    def record_operation(self, operation: str, result: str) -> None: ...
+    def record_run_started(self, run_id: str, profile: str) -> None: ...
+
+
+class _NoopOperationResultSink:
+    __slots__ = ()
+
+    def record_operation(self, operation: str, result: str) -> None:
+        return None
+
+    def record_run_started(self, run_id: str, profile: str) -> None:
+        return None
 
 
 class EvaluationRunnerError(Exception):
@@ -89,6 +116,19 @@ class EvaluationScheduleError(Exception):
 
     def __repr__(self) -> str:
         return "EvaluationScheduleError()"
+
+
+@dataclass(frozen=True, slots=True, repr=False, init=False)
+class ScheduleReservation:
+    _identity: object
+
+    def __init__(self, identity: object, *, _token: object) -> None:
+        if _token is not _RESERVATION_TOKEN:
+            raise EvaluationScheduleError()
+        object.__setattr__(self, "_identity", identity)
+
+    def __repr__(self) -> str:
+        return "ScheduleReservation()"
 
 
 def _now(clock: RunnerClock) -> datetime:
@@ -145,10 +185,14 @@ class EvaluationRunner:
     _repository: RunRepository
     _clock: RunnerClock
     _trace_id: Callable[[], str]
+    _scenario_sink: ScenarioEvidenceSink
+    _operation_sink: OperationResultSink
 
     def __init__(self, context: EvaluationContext, planner: RagPlanner,
                  executor: RagExecutor, repository: RunRepository,
                  clock: RunnerClock, trace_id_provider: Callable[[], str],
+                 scenario_sink: ScenarioEvidenceSink,
+                 operation_sink: OperationResultSink,
                  *, _token: object) -> None:
         if _token is not _RUNNER_TOKEN:
             raise EvaluationRunnerError(ErrorCode.INTERNAL_ERROR)
@@ -158,6 +202,8 @@ class EvaluationRunner:
         object.__setattr__(self, "_repository", repository)
         object.__setattr__(self, "_clock", clock)
         object.__setattr__(self, "_trace_id", trace_id_provider)
+        object.__setattr__(self, "_scenario_sink", scenario_sink)
+        object.__setattr__(self, "_operation_sink", operation_sink)
 
     def __repr__(self) -> str:
         return "EvaluationRunner(scenarios=62, paired=True)"
@@ -181,6 +227,10 @@ class EvaluationRunner:
         except Exception:
             pass
 
+    def _record_operation(self, operation: str, result: str) -> None:
+        try: self._operation_sink.record_operation(operation, result)
+        except Exception: pass
+
     async def run(self, run_id: str) -> EvaluationRun:
         """Execute one existing queued run, producing no partial report."""
 
@@ -189,7 +239,11 @@ class EvaluationRunner:
             _assert_context_integrity(self._context)
             run = self._repository.start_run(run_id, _now(self._clock))
             started = True
-            self._validate_started(run, run_id)
+            safe_started = self._validate_started(run, run_id)
+            try:
+                self._operation_sink.record_run_started(run_id, safe_started.profile.value)
+            except Exception:
+                pass
             evidence: list[ScenarioEvidence] = []
             for index, scenario in enumerate(self._context.bundle.scenarios.scenarios):
                 baseline_trace = _trace(self._trace_id)
@@ -200,6 +254,10 @@ class EvaluationRunner:
                         scenario.question, self._context.health, self._executor._client
                     )
                 except OllamaAdapterError as error:
+                    result = ("timeout" if error.code.value == "model_timeout" else
+                        "unavailable" if error.code.value in {"ollama_unavailable", "embedding_model_unavailable"}
+                        else "protocol_error")
+                    self._record_operation("embedding", result)
                     if error.code.value not in _SHARED_FAILURE_CODES:
                         raise
                     item = evaluate_shared_query_failure(
@@ -209,6 +267,7 @@ class EvaluationRunner:
                         latency_ms=_latency(self._clock, pair_started),
                     )
                 else:
+                    self._record_operation("embedding", "success")
                     pair = await self._planner.plan_pair(
                         corpus_version=scenario.corpus_version,
                         subject_id=scenario.subject_id,
@@ -223,11 +282,16 @@ class EvaluationRunner:
                         try:
                             result = await self._executor.execute(plan)
                         except OllamaAdapterError as error:
+                            result_name = ("timeout" if error.code.value == "model_timeout" else
+                                "unavailable" if error.code.value in {"ollama_unavailable", "generation_model_unavailable"}
+                                else "protocol_error")
+                            self._record_operation("generation", result_name)
                             if error.code.value not in _GENERATION_FAILURE_CODES:
                                 raise
                             result = None
                             failure = error.code.value
                         else:
+                            self._record_operation("generation", "success")
                             failure = None
                         mode_results.append(result)
                         failures.append(failure)
@@ -241,6 +305,7 @@ class EvaluationRunner:
                         baseline_failure_code=failures[0], guarded_failure_code=failures[1],
                     )
                 evidence.append(item)
+                self._scenario_sink.record_scenario(run_id, item)
                 if index < PROGRESS_CALLS:
                     progressed = self._repository.advance_run(run_id, _now(self._clock))
                     if (type(progressed) is not EvaluationRun
@@ -285,6 +350,8 @@ def create_evaluation_runner(
     repository: RunRepository,
     clock: RunnerClock,
     trace_id_provider: Callable[[], str],
+    scenario_sink: ScenarioEvidenceSink | None = None,
+    operation_sink: OperationResultSink | None = None,
 ) -> EvaluationRunner:
     """Bind one context and its exact planner/executor without performing I/O."""
 
@@ -320,10 +387,21 @@ def create_evaluation_runner(
                 or not callable(getattr(clock, "monotonic_ns", None)) \
                 or not callable(trace_id_provider):
             raise ValueError
+        if scenario_sink is None:
+            scenario_sink = _NoopScenarioEvidenceSink()
+        if not callable(getattr(scenario_sink, "record_scenario", None)):
+            raise ValueError
+        if operation_sink is None:
+            operation_sink = _NoopOperationResultSink()
+        if not callable(getattr(operation_sink, "record_operation", None)):
+            raise ValueError
+        if not callable(getattr(operation_sink, "record_run_started", None)):
+            raise ValueError
     except Exception:
         raise EvaluationRunnerError(ErrorCode.EXPERIMENT_MANIFEST_MISMATCH) from None
     return EvaluationRunner(context, planner, executor, repository, clock,
-                            trace_id_provider, _token=_RUNNER_TOKEN)
+                            trace_id_provider, scenario_sink, operation_sink,
+                            _token=_RUNNER_TOKEN)
 
 
 @dataclass(frozen=True, slots=True, repr=False, init=False)
@@ -331,6 +409,7 @@ class EvaluationScheduler:
     _runner: EvaluationRunner
     _semaphore: asyncio.Semaphore
     _tasks: set[asyncio.Task[EvaluationRun]]
+    _reservations: set[object]
     _closed: bool
 
     def __init__(self, runner: EvaluationRunner, *, _token: object) -> None:
@@ -339,6 +418,7 @@ class EvaluationScheduler:
         object.__setattr__(self, "_runner", runner)
         object.__setattr__(self, "_semaphore", asyncio.Semaphore(MAX_EVALUATION_CONCURRENCY))
         object.__setattr__(self, "_tasks", set())
+        object.__setattr__(self, "_reservations", set())
         object.__setattr__(self, "_closed", False)
 
     def __repr__(self) -> str:
@@ -354,8 +434,28 @@ class EvaluationScheduler:
             return await self._runner.run(run_id)
 
     def schedule(self, run_id: str) -> asyncio.Task[EvaluationRun]:
-        if self._closed or len(self._tasks) >= MAX_SCHEDULED_TASKS:
+        reservation = self.reserve()
+        return self.commit(reservation, run_id)
+
+    def reserve(self) -> ScheduleReservation:
+        if self._closed or len(self._tasks) + len(self._reservations) >= MAX_SCHEDULED_TASKS:
             raise EvaluationScheduleError()
+        identity = object()
+        self._reservations.add(identity)
+        return ScheduleReservation(identity, _token=_RESERVATION_TOKEN)
+
+    def release(self, reservation: ScheduleReservation) -> None:
+        if type(reservation) is not ScheduleReservation \
+                or reservation._identity not in self._reservations:
+            raise EvaluationScheduleError()
+        self._reservations.remove(reservation._identity)
+
+    def commit(self, reservation: ScheduleReservation,
+               run_id: str) -> asyncio.Task[EvaluationRun]:
+        if self._closed or type(reservation) is not ScheduleReservation \
+                or reservation._identity not in self._reservations:
+            raise EvaluationScheduleError()
+        self._reservations.remove(reservation._identity)
         task = asyncio.create_task(self._execute(run_id))
         self._tasks.add(task)
         task.add_done_callback(self._task_done)
@@ -372,6 +472,7 @@ class EvaluationScheduler:
 
     async def shutdown(self) -> None:
         object.__setattr__(self, "_closed", True)
+        self._reservations.clear()
         tasks = tuple(self._tasks)
         for task in tasks:
             task.cancel()
