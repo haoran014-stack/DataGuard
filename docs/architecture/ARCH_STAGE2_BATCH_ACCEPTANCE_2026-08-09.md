@@ -613,3 +613,80 @@ plan。
 用户已在 A4b 开始前明确修改交付策略：后续批次只创建本地独立提交，Stage 2 全部
 实现、独立测试和总架构验收完成后再统一 push。因此第 8.6 节的逐批远端交付门已被
 此新指令取代。产品提交和本节架构提交均只保存在本地；本批不得执行 push。
+
+## 10. Batch A5a — minimized audit evidence storage
+
+### 10.1 验收快照与结论
+
+- 产品提交：`1950a64`
+- 提交主题：`feat: add minimized audit evidence storage`
+- 覆盖需求：`S2-STORAGE` 的最小化 audit evidence、SQLite 实体存储、共享
+  SQLite/PostgreSQL repository contract 和确定性分页子集
+- 架构结论：**ACCEPTED WITH CORRECTIONS CLOSED; LOCAL-ONLY DELIVERY**
+
+本批只接受 audit evidence 基础设施，不包含 run/report persistence、启动恢复、API、
+评测执行、指标、Compose 或真实 PostgreSQL 连接证据。
+
+### 10.2 接受的实现
+
+- Audit event、retrieval、authorization denial、detection、filter 和 page 均为
+  closed/frozen 模型；UUID 使用 canonical 小写形式，任意 aware 时间统一归一到 UTC。
+- retrieved/denial/detection children 是 count 与 aggregate detector action 的唯一事实源；
+  显式汇总漂移、数据库子项漂移、重复或非确定性顺序均被拒绝。
+- 四张规范化表只保存 allowlisted scalar evidence；不存在 raw question、document body、
+  context、prompt、reply、model output、Canary literal 或 protected-fragment literal 列。
+- Append 以一个事务写入主记录和全部 children；任一失败回滚整个事件。读取时重新构造并
+  验证公共模型，不返回损坏或漂移记录。
+- Listing 实现 OpenAPI 全部 filter、inclusive time interval、`limit+1`、稳定
+  `(occurred_at,event_id)` 升序和 exclusive cursor，保证翻页无重复和无跳项。
+- Cursor 是有界、canonical base64url JSON，含版本与 SHA-256 完整性字段；解析还独立验证
+  canonical UUID 和 UTC-Z timestamp。无效输入仅映射固定 `invalid_request`。
+- SQLite 路径在显式 `prepare_schema` 时逐组件创建和校验；普通 append/list/health 只做
+  read-only 校验，目录消失时失败关闭，绝不静默重建。
+- Repository 构造无连接和文件副作用；PostgreSQL engine 保持 lazy 且隐藏参数。具体
+  SQLAlchemy repository 受私有 factory token 控制且不从 package 导出。
+- Storage/query 错误固定、不可注入修改，且不携带 SQL、DSN、路径、driver text、原始内容
+  或依赖异常字符串。
+
+### 10.3 架构纠偏
+
+主架构预审与开发闭环关闭了以下偏差：detector child 与 aggregate action 的 `none` 枚举
+污染、frozen exception traceback 不可写、非零时区 aware date-time 过度拒绝、WindowsPath
+类型假设、cursor timestamp/checksum 非 canonical、health/schema 漂移未拒绝、运行期路径
+校验会重建目录、具体 repository 可绕过 factory 构造、普通异常内容回显，以及测试中
+credential-like `user:password@...` DSN 与卫生证据不一致。最终 PostgreSQL lazy/no-connect
+测试使用无 userinfo 的 localhost DSN，测试强度未降低。
+
+### 10.4 主架构独立验收证据
+
+| 检查 | 结果 |
+| --- | --- |
+| A5a 独立定向回归 | `35 passed in 6.42s`，仓库内独立 basetemp |
+| 完整项目独立回归 | `525 passed in 26.40s` |
+| Stage 1 fixture/catalog CLI | exit 0；6/30/62；0 issue；三份 digest 不变 |
+| 事务与恢复 | main/children 故障回滚、duplicate、driver fault、read drift 均覆盖 |
+| 分页与 filter | 同时间 tie、exclusive cursor、tamper/noncanonical、closed interval 全覆盖 |
+| 路径与 schema | escape、symlink/reparse、hardlink、missing parent、额外 table/column 均拒绝 |
+| 依赖边界 | import/constructor 无 I/O；PostgreSQL lazy/no-connect；SQLite prepare 显式 |
+| 内容安全 | fixed error/repr、raw-field absence、credential-bearing DSN 扫描均通过 |
+| 编译与文本 | compileall、`git diff --check`、8 文件 UTF-8/no-BOM/LF 均通过 |
+| 契约边界 | `docs/contracts/`、Stage 2 scope 与依赖文件未修改 |
+
+### 10.5 残余与下一批门槛
+
+- Portable Python/SQLite 无法把完整路径 walk 与 SQLite open 合成跨进程不可分割操作；当前
+  通过重复校验和 fail-closed 缩小 TOCTOU 面，但不宣称抵御拥有同机写权限的持续竞态攻击。
+- Cursor checksum 只提供确定性完整性/损坏检测，不是调用者认证或授权机制；当前接口仍是
+  本地合成实验边界。
+- 运行时 schema 校验闭合表名和列名，行数据通过公共模型二次验证；它不是完整迁移系统，
+  不替代后续 Docker/PostgreSQL 真实 DDL 与故障复验。
+- PostgreSQL 本批只有 lazy construction 与 dialect compile 证据，没有真实连接、事务或
+  startup recovery 证据，因此 evidence profile 尚不可验收。
+- A5b 必须单独实现 run lifecycle、原子 startup recovery 和完整 immutable report
+  persistence；不得混入 API 或 evaluation executor。只有 completed 运行可以拥有报告，
+  queued/running/failed/interrupted 均不得持久化 partial report。
+
+### 10.6 Git 交付状态
+
+产品提交 `1950a64` 仅保存在本地。按照用户当前交付策略，本节架构验收也创建独立本地提交，
+Stage 2 总实现、独立测试与总架构验收完成前不执行任何 push。
