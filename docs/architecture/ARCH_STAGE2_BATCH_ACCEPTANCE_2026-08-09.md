@@ -855,3 +855,110 @@ allowlist 和权威 catalog 校验。
 
 产品提交 `11a37cc` 仅保存在本地。本节架构验收创建独立本地提交；按照用户当前交付策略，
 Stage 2 总实现、唯一测试 agent 独立总验收与主架构总验收完成前不执行 push。
+
+## 13. Batch A7a — deterministic paired evaluation and complete reports
+
+### 13.1 验收快照与结论
+
+- 产品提交：`f9e740b`
+- 提交主题：`feat: add deterministic paired evaluation reports`
+- 覆盖需求：`S2-EVAL` 的逐模式确定性判断、62-pair 汇总、完整 report/gates、
+  comparability/strict-manifest 绑定与 `S2-CD01` Canary detail completeness
+- 架构结论：**ACCEPTED WITH BLOCKING PROVENANCE CORRECTIONS CLOSED;
+  UNIT-ONLY REPORT EVIDENCE; LOCAL-ONLY DELIVERY**
+
+本批只接受纯 evaluation/report core。它不调 Ollama、不调数据库、不提供 scheduler/API production
+composition，也不构成真实攻击成功率、防护效果或 portfolio 证据。
+
+### 13.2 接受的实现
+
+- `QueryEmbedding` 私有绑定 exact UTF-8 question SHA-256；planner 在 retrieval/message 前验证
+  question 与 handle 一致，避免“问题 B 使用问题 A 的向量”。
+- `RagPlanner.plan_pair` 在同一次受控会话中复用同一个 QueryEmbedding 和同一个 validated index，
+  生成 baseline/guarded 两个 plan；pair 还绑定 corpus version、subject 和 question digest。
+- 每个 plan/result 携带不可序列化的 session/plan identity 与私有内容完整性摘要。Evaluation 只
+  接受对应 plan 的 result，拒绝交换、跨 pair、single-plan 冒充和执行后内容篡改。
+- Loaded vector index 从实际 canonical artifact bytes 重算 SHA/format/count/dim，并在创建
+  evaluation context 时重新执行完整 corpus/model/vector binding，覆盖 finite、dimension、order、
+  nonzero norm 与 model tag/digest；不相信调用方声明的 artifact facts。
+- Evaluation context 保存 canonical manifest/report-schema snapshot，绑定 fixture、resources、
+  model facts、settings、index 和实际 bytes digests，并在 evaluate/build 入口重新验证整体摘要。
+- 每个 ScenarioEvidence 绑定当前 context 与自身完整 minimized content digest；report builder 重验
+  62 项顺序、fixture metadata、role/classification/case digest、authorization、prevention 和内容完整性。
+- QA judgment 只使用固定 NFKC/casefold/五类零宽删除/Unicode whitespace 规范化，确定性计算
+  must_include、any_of、must_not_include；禁止 model judge。
+- Attack delivery 与 final leak 遵循固定 family 语义；guarded blocked 的最终返回泄露数为 0，
+  同时保留最小 blocked detections。Detection ID/owner/role/action/violation 全部从 accepted corpus、
+  system resource 和 A2c result 重算。
+- Shared query/embed 在 plan 前失败有独立受控入口：四类固定 dependency/protocol code 同时产生
+  baseline/guarded failed/indeterminate，证据为空、delivery false，并仍计入固定 124 分母。
+- 已成功规划后的 per-mode generation failure 只接受四类 generation/transport code；storage、
+  manifest、internal 和 evaluation context-budget drift 不得伪装为有报告的 mode result。
+- Report builder 从 62 对重算 ASR、delivery、authorization violation、QA/false rejection、leaks、
+  indeterminate、prevention distribution、全部 gates、overall 和 portfolio eligibility。
+- Comparability true 同时依赖运行时 paired provenance 与相同 context stable facts；stable key 覆盖
+  scenario/corpus/identity/model/settings/resource/vector digests，不写入随机 session identity。
+- `S2-CD01` semantic validator 独立重算 Canary details：scenario order、baseline/guarded order、
+  trace、exact projection、sort/unique/cardinality 均闭合，且排除 protected fragments。
+- 最终 mapping 必须同时通过 Draft 2020-12 + FormatChecker 和完整 semantic validator，再产生
+  deterministic compact UTF-8/final-LF bytes；本批不持久化。
+
+### 13.3 阻断级架构纠偏
+
+初版 plan/result 只有 mode/role/retrieval，无法证明两模式共享 QueryEmbedding、index 和资源。
+架构因此引入 paired session/result provenance；随后测试又发现 identity 不能发现执行后 plan 内容
+篡改，补入私有 plan integrity digest。
+
+主架构独立探针进一步实证：把 scenario 3 的同角色 pair/result 传给 scenario 1，系统曾成功产出
+`qa-01` 证据但检索 doc 3，仍可进入 comparable report；同时直接伪造 LoadedVectorIndex 的
+artifact SHA 并同步改 manifest 曾被接受。这两项已分别由 exact query/request binding 和 actual
+artifact full revalidation 关闭。
+
+ScenarioEvidence 初版没有 context/content binding，builder 又直接写 comparability true；最终增加
+context snapshot integrity、每项 content digest 和 62 项 provenance 复核。开发负测还发现 manifest
+raw bytes 未直接进入 context integrity payload，最终同时绑定 declared 与 actual manifest digest。
+
+最后，初版把 shared embedding failure 套在已存在 pair 上，真实 scheduler 无法合法产生；最终
+新增 pre-plan shared failure 路径。`context_budget_exceeded` 不再伪装为 existing-pair mode failure：
+固定 62 fixture 若在 evaluation planning 触发预算漂移，后续 A7b 必须使 run fatal 且无报告。
+
+### 13.4 主架构独立验收证据
+
+| 检查 | 结果 |
+| --- | --- |
+| A7a/A4a/A4b/CD01/index 独立定向 | `182 passed in 13.50s`，独立安全 basetemp |
+| 完整项目独立回归 | `651 passed in 77.30s`，独立安全 basetemp |
+| Stage 1 fixture/catalog CLI | exit 0；6/30/62；0 issue；三份 digest 不变 |
+| 主架构 cross-scenario 探针 | 原先错误接受；最终相同探针固定 `EvaluationError` |
+| Query/pair provenance | question mismatch、subject/corpus drift、cross/swap/single/tamper 均拒绝 |
+| Index provenance | fake SHA、zero/nonfinite/dimension drift 即使同步 facts 也拒绝 |
+| Context/evidence integrity | manifest/schema/settings/health/index/context 与全部 mode 字段篡改均拒绝 |
+| Shared query failure | 四码、双 mode、空证据、delivery false、固定分母均覆盖 |
+| 62/124 report | 固定分布、所有 summaries/gates/portfolio 与 deterministic bytes 均覆盖 |
+| CD01 | missing/extra/duplicate/order/trace/field/projection 完整负例矩阵均拒绝 |
+| 内容最小化 | report/repr/error 无 question/document/reply/marker literal；product simulator 0 命中 |
+| 编译与文本 | compileall、`git diff --check`、17 文件 UTF-8/no-BOM/LF 均通过 |
+| 契约边界 | contracts、Stage 2 scope、依赖均未修改；credential/marker 扫描通过 |
+
+首次包含 vector store 的开发测试未指定安全 basetemp，因 Windows 默认临时目录权限产生 setup
+errors；该结果未被采信。开发侧与主架构最终证据均使用新的受控 basetemp 独立重跑。
+
+### 13.5 残余与下一批门槛
+
+- 测试 simulator 只存在于 `tests/support/evaluation_factory.py`。它构造的 portfolio-eligible mapping
+  只证明计算路径可达，绝不是 evidence-profile 实验或安全效果结论。
+- A7b 必须按 fixture 顺序执行 exact shared embed，然后 baseline plan/execute、guarded plan/execute，
+  将真实 latency/trace/error 交给本批受控入口；禁止直接构造 ModeEvidence/ScenarioEvidence。
+- Shared query failure 必须同时完成该 scenario 的两个 indeterminate mode results；generation failure
+  可单 mode 保留。Fatal manifest/index/storage/report validation/context-budget drift 必须使 run failed、
+  无 partial report。
+- A7b 必须每完成一个 pair 原子推进一次 progress，完成 62 对后调用 A5b complete+report 一次；
+  任一 report gate/write 失败不得留下 completed run 或 report。
+- 真实 comparability/portfolio 仍需要 actual local model digests、真实 Ollama calls、PostgreSQL、
+  strict manifest 和完整持久化报告。当前这些均没有运行证据。
+- Metrics 尚未实现；后续只能从本批 minimized outcome/reason facts 更新固定低基数标签。
+
+### 13.6 Git 交付状态
+
+产品提交 `f9e740b` 仅保存在本地。本节架构验收创建独立本地提交；按照用户当前策略，Stage 2
+总实现、唯一测试 agent 独立总验收与主架构总验收完成前不执行 push。
