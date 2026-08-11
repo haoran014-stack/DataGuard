@@ -236,3 +236,28 @@ import dataguard.config
 
     assert completed.returncode == 0, completed.stderr
     assert list(writable_tmp_path.iterdir()) == []
+
+
+def test_container_host_gateway_requires_exact_explicit_opt_in() -> None:
+    accepted = RuntimeSettings(allow_container_host_gateway=True,
+        ollama_base_url="http://host.docker.internal:11434")
+    assert accepted.ollama_base_url == "http://host.docker.internal:11434"
+    with pytest.raises(ValidationError):
+        RuntimeSettings(ollama_base_url="http://host.docker.internal:11434")
+    with pytest.raises(ValidationError):
+        RuntimeSettings(allow_container_host_gateway=True,
+                        ollama_base_url="http://127.0.0.1:11434")
+    for value in ("https://host.docker.internal:11434", "http://user@host.docker.internal:11434",
+                  "http://host.docker.internal:11434/path", "http://example.internal:11434"):
+        with pytest.raises(ValidationError):
+            RuntimeSettings(allow_container_host_gateway=True, ollama_base_url=value)
+
+
+def test_container_gateway_env_boolean_is_closed() -> None:
+    settings = RuntimeSettings.from_env({
+        "DATAGUARD_ALLOW_CONTAINER_HOST_GATEWAY": "true",
+        "DATAGUARD_OLLAMA_BASE_URL": "http://host.docker.internal:11434",
+    })
+    assert settings.allow_container_host_gateway is True
+    with pytest.raises(ValueError):
+        RuntimeSettings.from_env({"DATAGUARD_ALLOW_CONTAINER_HOST_GATEWAY": "1"})

@@ -27,6 +27,8 @@ dev = [
 
 [project.scripts]
 dataguard-validate = "dataguard.validation.cli:main"
+dataguard = "dataguard.cli:main"
+dataguard-server = "dataguard.server:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

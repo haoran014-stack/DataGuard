@@ -224,6 +224,26 @@ def _read_json(path: Path, limit: int = 2 * 1024 * 1024) -> dict[str, Any]:
         raise ProductionError() from None
 
 
+def _read_runtime_manifest(project_root: Path, relative: Path) -> dict[str, Any]:
+    """Bounded manifest read beneath the repository without following links."""
+
+    try:
+        root = project_root.resolve(strict=True)
+        target = project_root / relative
+        resolved = target.resolve(strict=True)
+        if root not in resolved.parents or not resolved.is_file():
+            raise ValueError
+        current = root
+        for part in relative.parts:
+            current = current / part
+            metadata = current.lstat()
+            if current.is_symlink() or getattr(metadata, "st_file_attributes", 0) & 0x400:
+                raise ValueError
+        return _read_json(resolved)
+    except Exception:
+        raise ProductionError("experiment_manifest_mismatch") from None
+
+
 def _manifest(bundle, resources, loaded, health: OllamaHealthFacts,
               settings: RuntimeSettings, created_at: str) -> dict[str, Any]:
     digests = resources.artifact_digests()
@@ -396,9 +416,13 @@ class ProductionRuntime:
             report_contract = ReportContract(report_schema)
             context = planner = executor = scheduler = run_metrics = None
             if ready:
-                if settings.profile is RuntimeProfile.EVIDENCE and self._manifest_input is None:
-                    raise ProductionError("experiment_manifest_mismatch")
-                manifest = (dict(self._manifest_input) if self._manifest_input is not None else
+                manifest_input = self._manifest_input
+                if manifest_input is None and settings.profile is RuntimeProfile.EVIDENCE:
+                    if settings.experiment_manifest_path is None:
+                        raise ProductionError("experiment_manifest_mismatch")
+                    manifest_input = _read_runtime_manifest(
+                        self._project_root, settings.experiment_manifest_path)
+                manifest = (dict(manifest_input) if manifest_input is not None else
                     _manifest(bundle, resources, loaded_index, health, settings,
                               checked.isoformat().replace("+00:00", "Z")))
                 context = create_evaluation_context(bundle, resources, loaded_index, health,

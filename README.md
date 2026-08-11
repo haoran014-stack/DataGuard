@@ -3,12 +3,11 @@
 DataGuard is a local, synthetic-data-only RAG security experiment comparing a
 deliberately vulnerable `baseline` path with one fixed `guarded` path.
 
-> **Stage 1 status:** the repository now contains an installable Python 3.12
-> package, closed domain models, three committed `synthetic-v1` YAML fixtures,
-> layered Schema/Pydantic/cross-record validation, report/error semantic
-> validators, and automated unit tests. It still has no API implementation, RAG
-> pipeline, vector index, database integration, Ollama integration, Compose
-> topology, runnable evaluation, or measured experiment result.
+> **Stage 2 implementation status:** the repository contains the complete local
+> API/RAG/detector/evaluation/storage implementation, explicit artifact tooling,
+> a six-route production ASGI composition, and an API+PostgreSQL Compose topology.
+> No measured security result is committed. The current development host lacked
+> Docker and Ollama, so real integration/evidence steps remain explicitly NOT RUN.
 
 ## Project problem and non-goals
 
@@ -37,8 +36,7 @@ deployment claim, or safety guarantee.
 | Embedding | local Ollama `qwen3-embedding:0.6b` |
 | Dataset | `synthetic-v1`: 6 identities, 30 documents, 62 scenarios |
 
-The future HTTP surface remains contractually fixed but is not implemented in
-Stage 1:
+The implemented HTTP surface is contractually fixed:
 
 - `POST /v1/chat`
 - `POST /v1/evaluation-runs`
@@ -64,11 +62,9 @@ and [risk taxonomy](docs/security/RISK_TAXONOMY.md).
 ## Architecture
 
 The locked project stack is Python 3.12, FastAPI, Pydantic, SQLAlchemy, PyYAML,
-jsonschema, and pytest. Stage 1 uses Pydantic, PyYAML, and jsonschema for the
-domain/validation layer; it deliberately does not instantiate FastAPI,
-SQLAlchemy, storage, retrieval, or Ollama clients. Exploratory storage may later
-be SQLite; evidence storage must be PostgreSQL. Future Compose includes API plus
-PostgreSQL only. Ollama remains a separately managed local prerequisite.
+jsonschema, and pytest. Exploratory storage may use SQLite; evidence storage must
+use PostgreSQL. Compose contains API plus PostgreSQL only. Ollama remains a
+separately managed host prerequisite and is never pulled by project scripts.
 
 ```mermaid
 flowchart LR
@@ -120,16 +116,20 @@ instead of hard-coding a public-library digest as a local fact.
 
 ## Installation and running
 
-Run these commands from the repository root with Python 3.12. The direct runtime,
-development, and build dependencies are exactly pinned in `pyproject.toml`.
+Run these commands from the repository root with Python 3.12. The direct
+dependencies are exactly pinned in `pyproject.toml`; the platform locks bind
+every runtime and test dependency to downloaded wheel hashes. The main path uses
+`PYTHONPATH=src` and does not invoke editable installation or dependency
+resolution after the hashed install.
 
 PowerShell:
 
 ```powershell
 python --version
 python -m venv .venv
-.\.venv\Scripts\python -m pip install -e ".[dev]"
-.\.venv\Scripts\python -m dataguard.validation
+$env:PYTHONPATH = (Resolve-Path .\src).Path
+.\.venv\Scripts\python -m pip install --require-hashes -r requirements\dev-windows.lock
+.\.venv\Scripts\python -m dataguard validate
 .\.venv\Scripts\python -m pytest
 ```
 
@@ -137,30 +137,103 @@ POSIX shells:
 
 ```sh
 python3.12 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev]'
+export PYTHONPATH="$PWD/src"
+.venv/bin/python -m pip install --require-hashes -r requirements/dev-linux.lock
 .venv/bin/python -m dataguard.validation
 .venv/bin/python -m pytest
 ```
 
-`python -m dataguard.validation` is the official Stage 1 validation entry point.
-It validates the three fixture files at the byte/YAML/JSON Schema/Pydantic and
-cross-record layers, validates the closed error catalog, prints deterministic
-minimized JSON, and exits nonzero on any issue. This is not an API server or an
-evaluation command; no such runtime exists yet.
+`python -m dataguard.validation` remains the Stage 1-compatible validation entry;
+`python -m dataguard validate` is the unified Stage 2 form. Use
+`dev-windows.lock` only for CPython 3.12 on `win_amd64`, and `dev-linux.lock`
+only for CPython 3.12 on `manylinux2014_x86_64`. Docker uses the corresponding
+`runtime-linux.lock`. Lock sources, generation evidence, and offline resolution
+checks are recorded in the
+[P2 local evidence record](docs/integration/STAGE2_P2_LOCAL_EVIDENCE_2026-08-11.md).
+
+### Local artifact preparation and server
+
+Ollama must already be listening on `127.0.0.1:11434` with exact tags
+`qwen2.5:3b-instruct` and `qwen3-embedding:0.6b`. These commands never pull a
+model and never silently use a simulator:
+
+```powershell
+.\.venv\Scripts\python -m dataguard validate
+.\.venv\Scripts\python -m dataguard build-index
+# Existing index replacement always requires the operator to add --overwrite.
+.\.venv\Scripts\python -m dataguard verify-artifacts
+.\.venv\Scripts\python -m dataguard.server
+```
+
+The host server binds `127.0.0.1:8000`. Only the explicit combination
+`DATAGUARD_ALLOW_CONTAINER_HOST_GATEWAY=true` and literal
+`http://host.docker.internal:11434` permits the container gateway and changes
+the server bind to `0.0.0.0` inside its container. Other hosts, HTTPS, userinfo,
+paths, queries, and fragments are rejected.
+
+Evidence preparation additionally requires process-local environment settings
+for `profile=evidence`, PostgreSQL, a credential-bearing DSN that is never
+printed, and `DATAGUARD_EXPERIMENT_MANIFEST_PATH=artifacts/runtime/experiment-manifest.v1.json`:
+
+```powershell
+.\.venv\Scripts\python -m dataguard build-index
+.\.venv\Scripts\python -m dataguard generate-manifest
+.\.venv\Scripts\python -m dataguard verify-artifacts
+```
+
+API startup only reads and revalidates prepared index/manifest artifacts. It
+never builds, replaces, repairs, or falls back to a simulator.
+
+### Docker and PostgreSQL
+
+Copy `.env.example` to `.env` and replace its local synthetic placeholders.
+`.env` is consumed by Compose only; it is not imported into the host PowerShell
+process. Compose contains exactly `api` and `postgres`, uses a named PostgreSQL
+volume, mounts prepared artifacts read-only, drops all API capabilities, enables
+`no-new-privileges`, and never mounts the Docker socket.
+
+```powershell
+docker compose config --quiet
+docker compose up -d --build
+docker compose down       # preserves the named database volume
+```
+
+Do not use `down -v` unless the operator explicitly intends to delete the local
+database volume. Ollama runs on the host; Compose reaches only the literal
+`host.docker.internal` gateway enabled above.
+
+### Six API operations
+
+- `POST /v1/chat`: `subject_id`, `question`, `mode`, `corpus_version`.
+- `POST /v1/evaluation-runs`: creates a distinct queued 62-scenario paired run.
+- `GET /v1/evaluation-runs/{run_id}`: polls its five-state lifecycle.
+- `GET /v1/audit-events`: reads minimized evidence with bounded filters/cursor.
+- `GET /v1/reports/{run_id}?format=json|html`: complete runs only.
+- `GET /health`: cached startup dependency/readiness facts; no request-time probe.
+
+The Windows demonstration is `scripts/demo.ps1`. It performs preflight,
+validation, index/manifest preparation, Compose startup, health, both chat modes,
+the complete evaluation, JSON/HTML report, and audit retrieval with fixed
+deadlines. It never pulls models or deletes the database volume.
+If both prepared artifacts already exist, the script verifies and reuses them;
+if both are absent, it creates and verifies them. A one-artifact state stops for
+manual inspection. Replacement occurs only with the explicit
+`scripts/demo.ps1 -OverwriteArtifacts` switch.
 
 Deterministic model/embedding simulators are permitted only for isolated unit
 tests. `/v1/chat`, integration/regression, exploratory, and evidence paths must
 use the two locked local Ollama models and fail explicitly if Ollama or a model
 is unavailable; they never silently substitute simulator output.
 
-## Reproducing validation and the future experiment
+## Reproducing validation and the experiment
 
 Stage 1 fixture and semantic validation is reproducible with the installation
 and two validation commands above. The CLI success record contains only the
 stage/version, fixed 6/30/62 counts, exact-byte SHA-256 values, issue count, and
 status. It does not claim model execution or evidence results.
 
-The future evidence procedure remains contractually fixed but cannot yet be run:
+The evidence procedure is implemented, but only produces evidence when all real
+dependencies and strict artifacts validate:
 
 1. Validate identity/corpus/scenario YAML and cross-record rules: 2 identities
    per role; 10 documents per classification with 5 English + 5 Chinese; 30
@@ -177,9 +250,8 @@ The future evidence procedure remains contractually fixed but cannot yet be run:
    absence, and sanitized audit evidence. Any indeterminate result makes the
    evidence and portfolio eligibility fail.
 
-Steps 2 through 5 are future requirements, not claims that an evaluation command or
-result exists. Stage 1 only implements the data/report/error validation services
-needed before those runtime stages.
+No report in this repository claims those gates passed. Model/hardware/runtime
+changes may change results even with fixed generation settings.
 
 ## Metric definitions and evidence gates
 
@@ -203,10 +275,10 @@ operators/thresholds are in the [report schema](docs/contracts/report.schema.jso
 
 ## Limitations
 
-- Stage 1 contains domain/fixture/validation implementation but no API, RAG,
-  database, Ollama, Compose, evaluation runner, or measured experiment results.
-- Direct dependencies are exactly pinned; a fully hashed cross-platform
-  transitive lock artifact has not yet been introduced.
+- The implementation exists, but this development host had no Docker/Ollama;
+  real Compose, PostgreSQL, model, and evidence verification is NOT RUN.
+- Locks are generated for the recorded Python/platform inputs; regenerate and
+  review them when Python, platform, or direct pins change.
 - Synthetic results do not establish performance, safety, or compliance on real data.
 - Temperature 0 and a fixed seed improve comparability but do not guarantee
   bit-for-bit determinism across Ollama/model/hardware versions; digests and a
@@ -226,11 +298,15 @@ evidence may contain ranked document IDs/scores, authorization flags/denials,
 opaque detection evidence IDs, outcomes, hashes, and aggregates, but no marker
 literals or raw content. See [data governance and boundaries](docs/security/DATA_GOVERNANCE_AND_SECURITY_BOUNDARIES.md).
 
-## Repository layout and Stage 1 references
+## Repository layout and references
 
 - `src/dataguard/domain/`: closed Pydantic models and locked enums.
 - `src/dataguard/validation/`: byte/YAML/Schema/typed/semantic validators and CLI.
+- `src/dataguard/production.py`: explicit production lifecycle and services.
+- `src/dataguard/{ollama,vector_index,rag,detector,storage,evaluation}/`: controlled runtime layers.
 - `data/synthetic-v1/`: 6 identities, 30 documents, and 62 scenarios.
+- `requirements/`: hashed transitive lock inputs/artifacts.
+- `Dockerfile`, `compose.yaml`, `scripts/demo.ps1`: local deployment/demo tooling.
 - `tests/unit/`: developer-side positive and negative automated checks.
 - `docs/contracts/`: unchanged Stage 0 public and artifact contracts.
 - [Stage 1 scope and acceptance baseline](docs/architecture/STAGE1_SCOPE_AND_ACCEPTANCE.md)

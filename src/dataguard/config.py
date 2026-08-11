@@ -36,11 +36,13 @@ _ENV_TO_FIELD = {
     "DATAGUARD_PROFILE": "profile",
     "DATAGUARD_STORAGE_BACKEND": "storage_backend",
     "DATAGUARD_DATABASE_DSN": "database_dsn",
+    "DATAGUARD_ALLOW_CONTAINER_HOST_GATEWAY": "allow_container_host_gateway",
     "DATAGUARD_OLLAMA_BASE_URL": "ollama_base_url",
     "DATAGUARD_OLLAMA_CONNECT_TIMEOUT_SECONDS": "ollama_connect_timeout_seconds",
     "DATAGUARD_OLLAMA_READ_TIMEOUT_SECONDS": "ollama_read_timeout_seconds",
     "DATAGUARD_OLLAMA_MAX_RESPONSE_BYTES": "ollama_max_response_bytes",
     "DATAGUARD_RUNTIME_STATE_DIR": "runtime_state_dir",
+    "DATAGUARD_EXPERIMENT_MANIFEST_PATH": "experiment_manifest_path",
 }
 
 
@@ -94,6 +96,7 @@ class RuntimeSettings(BaseModel):
         exclude=True,
         repr=False,
     )
+    allow_container_host_gateway: bool = Field(default=False, strict=True)
     ollama_base_url: str = DEFAULT_OLLAMA_BASE_URL
     ollama_connect_timeout_seconds: float = Field(
         default=5.0,
@@ -114,11 +117,12 @@ class RuntimeSettings(BaseModel):
         le=MAX_RESPONSE_BYTES,
     )
     runtime_state_dir: Path = DEFAULT_RUNTIME_STATE_DIR
+    experiment_manifest_path: Path | None = None
 
     @field_validator("ollama_base_url", mode="before")
     @classmethod
     def validate_local_ollama_url(cls, value: Any) -> str:
-        """Accept only a credential-free HTTP URL for three literal loopback hosts."""
+        """Accept loopback HTTP, plus the exact container gateway under explicit opt-in."""
 
         if type(value) is not str or not value or value != value.strip():
             raise ValueError("Ollama base URL must be a bounded local HTTP URL")
@@ -132,9 +136,13 @@ class RuntimeSettings(BaseModel):
         except ValueError:
             raise ValueError("Ollama base URL must be a bounded local HTTP URL") from None
         host = parsed.hostname
+        allowed_hosts = set(_ALLOWED_OLLAMA_HOSTS)
+        if cls is RuntimeSettings:
+            # The model-level validator below binds the opt-in to the literal host.
+            allowed_hosts.add("host.docker.internal")
         if (
             parsed.scheme != "http"
-            or host not in _ALLOWED_OLLAMA_HOSTS
+            or host not in allowed_hosts
             or username is not None
             or password is not None
             or "?" in value
@@ -158,8 +166,20 @@ class RuntimeSettings(BaseModel):
             raise ValueError("runtime paths must remain relative beneath artifacts")
         return _bounded_artifact_path(value)
 
+    @field_validator("experiment_manifest_path", mode="before")
+    @classmethod
+    def validate_manifest_path(cls, value: Any) -> Path | None:
+        if value is None:
+            return None
+        if not isinstance(value, (str, Path)):
+            raise ValueError("runtime paths must remain relative beneath artifacts")
+        return _bounded_artifact_path(value)
+
     @model_validator(mode="after")
     def validate_storage_profile(self) -> Self:
+        if ((urlsplit(self.ollama_base_url).hostname == "host.docker.internal")
+                != self.allow_container_host_gateway):
+            raise ValueError("container host gateway access requires an exact explicit opt-in")
         dsn = self.database_dsn.get_secret_value()
         if not dsn or len(dsn) > MAX_DSN_LENGTH:
             raise ValueError("database DSN does not match the selected local backend")
@@ -231,6 +251,10 @@ class RuntimeSettings(BaseModel):
                     values[field_name] = int(raw)
                 except ValueError:
                     raise ValueError("DataGuard numeric environment setting is invalid") from None
+            elif field_name == "allow_container_host_gateway":
+                if raw not in {"true", "false"}:
+                    raise ValueError("DataGuard boolean environment setting is invalid")
+                values[field_name] = raw == "true"
             else:
                 values[field_name] = raw
         return cls.model_validate(values)

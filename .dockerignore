@@ -1,0 +1,12 @@
+**
+!Dockerfile
+!src/
+!src/**
+!data/
+!data/**
+!docs/
+!docs/contracts/
+!docs/contracts/**
+!requirements/
+!requirements/runtime-linux.lock
+
