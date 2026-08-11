@@ -1,6 +1,6 @@
 """Normalized SQLAlchemy audit schema shared by SQLite and PostgreSQL."""
 
-from sqlalchemy import Boolean, Column, Float, ForeignKey, Index, Integer, MetaData, String, Table
+from sqlalchemy import Boolean, Column, Float, ForeignKey, Index, Integer, MetaData, String, Table, Text
 
 metadata = MetaData()
 
@@ -44,4 +44,28 @@ audit_detections = Table(
     Column("position", Integer, primary_key=True), Column("type", String(48), nullable=False),
     Column("evidence_id", String(128), nullable=False), Column("violation", Boolean, nullable=False),
     Column("action", String(16), nullable=False),
+)
+
+evaluation_runs = Table(
+    "evaluation_runs", metadata,
+    Column("run_id", String(36), primary_key=True),
+    Column("status", String(16), nullable=False),
+    Column("scenario_set_version", String(64), nullable=False),
+    Column("profile", String(16), nullable=False),
+    Column("completed_scenarios", Integer, nullable=False),
+    Column("total_scenarios", Integer, nullable=False),
+    Column("created_at", String(32), nullable=False),
+    Column("updated_at", String(32), nullable=False),
+    Column("completed_at", String(32)),
+    Column("failure_code", String(64)),
+)
+Index("ix_evaluation_runs_status", evaluation_runs.c.status)
+
+evaluation_reports = Table(
+    "evaluation_reports", metadata,
+    Column("run_id", String(36), ForeignKey("evaluation_runs.run_id", ondelete="CASCADE"), primary_key=True),
+    Column("report_id", String(36), nullable=False, unique=True),
+    Column("generated_at", String(32), nullable=False),
+    Column("canonical_json", Text, nullable=False),
+    Column("sha256", String(64), nullable=False),
 )

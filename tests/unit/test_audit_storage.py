@@ -6,6 +6,7 @@ import os
 import hashlib
 import subprocess
 import sys
+import shutil
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -31,6 +32,14 @@ from dataguard.storage.schema import audit_detections, audit_events
 
 RAW = "RAW-AUDIT-SENTINEL"
 UTC = timezone.utc
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def install_report_contract(root: Path) -> None:
+    destination = root / "docs" / "contracts"
+    destination.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(PROJECT_ROOT / "docs" / "contracts" / "report.schema.json",
+                    destination / "report.schema.json")
 
 
 def event_at(moment: datetime, *, event_id: str | None = None, subject: str = "guest-01") -> AuditEvent:
@@ -49,6 +58,7 @@ def event_at(moment: datetime, *, event_id: str | None = None, subject: str = "g
 
 @pytest.fixture
 def repository(tmp_path: Path):
+    install_report_contract(tmp_path)
     settings = RuntimeSettings()
     repo = create_audit_repository(settings, tmp_path)
     repo.prepare_schema()
@@ -218,6 +228,7 @@ def test_health_requires_prepared_exact_schema(tmp_path: Path) -> None:
 
 def test_prepare_rejects_extra_table_and_column(tmp_path: Path) -> None:
     settings = RuntimeSettings()
+    install_report_contract(tmp_path)
     repo = create_audit_repository(settings, tmp_path)
     repo._sqlite_location.prepare_parent()
     malicious = create_engine(repo._engine.url)
@@ -228,6 +239,7 @@ def test_prepare_rejects_extra_table_and_column(tmp_path: Path) -> None:
     repo.close()
 
     other_root = tmp_path / "column-drift"; other_root.mkdir()
+    install_report_contract(other_root)
     repo = create_audit_repository(settings, other_root)
     repo._sqlite_location.prepare_parent()
     malicious = create_engine(repo._engine.url)
@@ -288,6 +300,7 @@ def test_concrete_repository_direct_construction_is_rejected() -> None:
 
 
 def test_runtime_operation_does_not_recreate_missing_parent(tmp_path: Path) -> None:
+    install_report_contract(tmp_path)
     repo = create_audit_repository(RuntimeSettings(), tmp_path)
     repo.prepare_schema()
     repo._engine.dispose()
@@ -309,6 +322,7 @@ def test_runtime_operation_does_not_recreate_missing_parent(tmp_path: Path) -> N
 
 
 def test_entry_model_dump_and_factory_exceptions_are_minimized(tmp_path: Path, monkeypatch) -> None:
+    install_report_contract(tmp_path)
     repo = create_audit_repository(RuntimeSettings(), tmp_path)
     repo.prepare_schema()
     original_event_dump = AuditEvent.model_dump
@@ -337,6 +351,8 @@ def test_schema_columns_are_exact_and_ddl_compiles() -> None:
         "audit_retrieved_documents": {"event_id","position","document_id","rank","similarity_score","authorized","included_in_context","denial_reason"},
         "audit_authorization_denials": {"event_id","position","document_id","reason"},
         "audit_detections": {"event_id","position","type","evidence_id","violation","action"},
+        "evaluation_runs": {"run_id","status","scenario_set_version","profile","completed_scenarios","total_scenarios","created_at","updated_at","completed_at","failure_code"},
+        "evaluation_reports": {"run_id","report_id","generated_at","canonical_json","sha256"},
     }
     assert {table.name: set(table.c.keys()) for table in metadata.tables.values()} == expected
     for table in metadata.tables.values():

@@ -215,3 +215,90 @@ class AuditEventFilter(_ClosedFrozen):
 class AuditEventPage(_ClosedFrozen):
     items: tuple[AuditEvent, ...] = Field(max_length=200)
     next_cursor: str | None = Field(default=None, max_length=512, strict=True)
+
+
+class RunStatus(str, Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    INTERRUPTED = "interrupted"
+
+
+class EvaluationProfile(str, Enum):
+    EXPLORATORY = "exploratory"
+    EVIDENCE = "evidence"
+
+
+class EvaluationRun(_ClosedFrozen):
+    run_id: UuidText
+    status: RunStatus
+    scenario_set_version: Literal["synthetic-v1"]
+    profile: EvaluationProfile
+    completed_scenarios: int = Field(strict=True, ge=0, le=62)
+    total_scenarios: Literal[62]
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None = None
+    failure_code: ErrorCode | None = None
+
+    @field_validator("run_id", mode="before")
+    @classmethod
+    def canonical_run_uuid(cls, value: Any) -> str:
+        return _uuid(value)
+
+    @field_validator("created_at", "updated_at", "completed_at", mode="before")
+    @classmethod
+    def normalize_timestamp(cls, value: Any) -> Any:
+        return None if value is None else _utc(value)
+
+    @model_validator(mode="after")
+    def validate_run_state(self) -> Self:
+        if self.created_at > self.updated_at:
+            raise ValueError("run timestamps are inconsistent")
+        if self.status is RunStatus.QUEUED:
+            valid = self.completed_scenarios == 0 and self.completed_at is None and self.failure_code is None
+        elif self.status is RunStatus.RUNNING:
+            valid = self.completed_scenarios < 62 and self.completed_at is None and self.failure_code is None
+        elif self.status is RunStatus.COMPLETED:
+            valid = (self.completed_scenarios == 62 and self.completed_at is not None
+                     and self.completed_at == self.updated_at and self.failure_code is None)
+        elif self.status is RunStatus.FAILED:
+            valid = self.completed_at is None and self.failure_code is not None
+        else:
+            valid = (self.completed_at is None
+                     and self.failure_code is ErrorCode.INTERNAL_ERROR)
+        if not valid:
+            raise ValueError("run terminal fields are inconsistent")
+        return self
+
+
+class StoredReport(_ClosedFrozen):
+    run_id: UuidText
+    report_id: UuidText
+    generated_at: datetime
+    sha256: Annotated[str, StringConstraints(strict=True, pattern=r"^[a-f0-9]{64}$")]
+    canonical_json: bytes = Field(repr=False, min_length=2, max_length=16 * 1024 * 1024)
+
+    @field_validator("run_id", "report_id", mode="before")
+    @classmethod
+    def canonical_report_uuid(cls, value: Any) -> str:
+        return _uuid(value)
+
+    @field_validator("generated_at", mode="before")
+    @classmethod
+    def normalize_generated_at(cls, value: Any) -> datetime:
+        return _utc(value)
+
+    @model_validator(mode="after")
+    def validate_bytes_digest(self) -> Self:
+        import hashlib
+        if not self.canonical_json.endswith(b"\n") or b"\r" in self.canonical_json or self.canonical_json.startswith(b"\xef\xbb\xbf"):
+            raise ValueError("stored report bytes are not canonical")
+        if hashlib.sha256(self.canonical_json).hexdigest() != self.sha256:
+            raise ValueError("stored report digest is invalid")
+        return self
+
+    def as_mapping(self) -> dict[str, Any]:
+        import json
+        return json.loads(self.canonical_json)

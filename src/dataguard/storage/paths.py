@@ -99,8 +99,8 @@ class SafeSQLiteLocation:
                 raise StorageError()
         self.validate_target(allow_missing=True)
 
-    def validate_parent_chain(self) -> None:
-        """Read-only validation of every existing parent component."""
+    def validate_project_root(self) -> None:
+        """Read-only validation of the configured existing repository root."""
 
         _real_directory(self.project_root)
         try:
@@ -108,6 +108,11 @@ class SafeSQLiteLocation:
                 raise StorageError()
         except OSError:
             raise StorageError() from None
+
+    def validate_parent_chain(self) -> None:
+        """Read-only validation of every existing parent component."""
+
+        self.validate_project_root()
         current = self.project_root
         for part in self.target.parent.relative_to(self.project_root).parts:
             current = current / part

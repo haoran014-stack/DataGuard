@@ -6,11 +6,13 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import threading
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
+from uuid import UUID
 
 from pydantic import ValidationError
 from sqlalchemy import Engine, and_, create_engine, event as sqlalchemy_event, inspect, insert, select, text
@@ -18,12 +20,19 @@ from sqlalchemy.engine import URL
 from sqlalchemy.exc import SQLAlchemyError
 
 from dataguard.config import RuntimeSettings, StorageBackend
-from .errors import AuditQueryError, StorageError
-from .models import AuditEvent, AuditEventFilter, AuditEventPage
+from .errors import (
+    AuditQueryError, ReportNotReadyError, ReportUnavailableError,
+    ReportValidationError, RunNotFoundError, RunStateError, StorageError,
+)
+from .models import (
+    AuditEvent, AuditEventFilter, AuditEventPage, ErrorCode, EvaluationProfile,
+    EvaluationRun, RunStatus, StoredReport,
+)
 from .paths import SafeSQLiteLocation
+from .reporting import load_report_validator, validate_and_canonicalize_report
 from .schema import (
     audit_authorization_denials, audit_detections, audit_events,
-    audit_retrieved_documents, metadata,
+    audit_retrieved_documents, evaluation_reports, evaluation_runs, metadata,
 )
 
 _CURSOR_VERSION = 1
@@ -35,6 +44,10 @@ class AuditRepository(Protocol):
     def prepare_schema(self) -> None: ...
     def append_event(self, audit_event: AuditEvent) -> None: ...
     def list_events(self, filters: AuditEventFilter) -> AuditEventPage: ...
+    def create_run(self, scenario_set_version: str, profile: EvaluationProfile,
+                   created_at: datetime) -> EvaluationRun: ...
+    def get_run(self, run_id: str) -> EvaluationRun: ...
+    def get_report(self, run_id: str) -> StoredReport: ...
     def healthcheck(self) -> bool: ...
     def close(self) -> None: ...
 
@@ -99,15 +112,21 @@ def _decode_cursor(value: str) -> tuple[str, str]:
 class SQLAlchemyAuditRepository:
     """Thread-safe local repository; its constructor performs no connection or file I/O."""
 
-    __slots__ = ("_backend", "_closed", "_engine", "_lock", "_sqlite_location")
+    __slots__ = ("_backend", "_closed", "_engine", "_lock", "_project_root",
+                 "_report_validator", "_sqlite_location")
 
     def __init__(self, backend: StorageBackend, engine: Engine,
-                 sqlite_location: SafeSQLiteLocation | None, *, _token: object | None = None) -> None:
+                 sqlite_location: SafeSQLiteLocation | None, project_root: Path | None = None,
+                 *, _token: object | None = None) -> None:
         if _token is not _REPOSITORY_TOKEN:
+            raise StorageError()
+        if project_root is None:
             raise StorageError()
         self._backend = backend
         self._engine = engine
         self._sqlite_location = sqlite_location
+        self._project_root = project_root
+        self._report_validator = None
         self._lock = threading.RLock()
         self._closed = False
 
@@ -140,6 +159,11 @@ class SQLAlchemyAuditRepository:
             self._require_open()
             try:
                 if self._sqlite_location is not None:
+                    self._sqlite_location.validate_project_root()
+                validator = self._report_validator
+                if validator is None:
+                    validator = load_report_validator(self._project_root)
+                if self._sqlite_location is not None:
                     self._sqlite_location.prepare_parent()
                 metadata.create_all(self._engine)
                 with self._engine.connect() as connection:
@@ -147,6 +171,7 @@ class SQLAlchemyAuditRepository:
                 if self._sqlite_location is not None:
                     self._sqlite_location.prepare_parent()
                     self._sqlite_location.validate_target(allow_missing=False)
+                self._report_validator = validator
             except StorageError:
                 raise
             except Exception:
@@ -199,6 +224,241 @@ class SQLAlchemyAuditRepository:
         value["authorization_denials"] = [{k: v for k, v in item.items() if k not in {"event_id", "position"}} for item in denials]
         value["detections"] = [{k: v for k, v in item.items() if k not in {"event_id", "position"}} for item in detections]
         return AuditEvent.model_validate(value)
+
+    @staticmethod
+    def _hydrate_run(row: Mapping[str, Any]) -> EvaluationRun:
+        value = dict(row)
+        for name in ("created_at", "updated_at", "completed_at"):
+            if value[name] is not None:
+                value[name] = datetime.fromisoformat(value[name].replace("Z", "+00:00"))
+        return EvaluationRun.model_validate(value)
+
+    @staticmethod
+    def _run_id(run_id: str) -> str:
+        try:
+            if type(run_id) is not str or str(UUID(run_id)) != run_id:
+                raise ValueError("run identifier")
+            return run_id
+        except Exception:
+            raise RunNotFoundError() from None
+
+    @staticmethod
+    def _run_time(value: datetime) -> datetime:
+        try:
+            if type(value) is not datetime or value.tzinfo is None or value.utcoffset() is None:
+                raise ValueError("run time")
+            return value.astimezone(timezone.utc)
+        except Exception:
+            raise RunStateError() from None
+
+    def _fetch_run(self, connection: Any, run_id: str, *, lock: bool = False) -> EvaluationRun:
+        statement = select(evaluation_runs).where(evaluation_runs.c.run_id == run_id)
+        if lock:
+            statement = statement.with_for_update()
+        row = connection.execute(statement).mappings().one_or_none()
+        if row is None:
+            raise RunNotFoundError()
+        run = self._hydrate_run(row)
+        reports = connection.execute(select(evaluation_reports.c.run_id).where(
+            evaluation_reports.c.run_id == run_id)).all()
+        if len(reports) != (1 if run.status is RunStatus.COMPLETED else 0):
+            raise StorageError()
+        return run
+
+    def create_run(self, scenario_set_version: str, profile: EvaluationProfile,
+                   created_at: datetime) -> EvaluationRun:
+        from uuid import uuid4
+        try:
+            if type(profile) is not EvaluationProfile:
+                raise TypeError("profile")
+            if profile is EvaluationProfile.EVIDENCE and self._backend is not StorageBackend.POSTGRESQL:
+                raise ValueError("evidence storage")
+            run = EvaluationRun(run_id=str(uuid4()), status=RunStatus.QUEUED,
+                scenario_set_version=scenario_set_version, profile=profile,
+                completed_scenarios=0, total_scenarios=62, created_at=created_at,
+                updated_at=created_at, completed_at=None, failure_code=None)
+        except Exception:
+            raise RunStateError() from None
+        values = run.model_dump(mode="json")
+        values["created_at"] = _timestamp(run.created_at)
+        values["updated_at"] = _timestamp(run.updated_at)
+        with self._lock:
+            self._require_open()
+            try:
+                self._validate_runtime_storage()
+                with self._engine.begin() as connection:
+                    self._validate_schema(connection)
+                    connection.execute(insert(evaluation_runs).values(**values))
+                return run
+            except StorageError:
+                raise
+            except Exception:
+                raise StorageError() from None
+
+    def get_run(self, run_id: str) -> EvaluationRun:
+        safe_id = self._run_id(run_id)
+        with self._lock:
+            self._require_open()
+            try:
+                self._validate_runtime_storage()
+                with self._engine.connect() as connection:
+                    self._validate_schema(connection)
+                    return self._fetch_run(connection, safe_id)
+            except (RunNotFoundError, StorageError):
+                raise
+            except Exception:
+                raise StorageError() from None
+
+    def _transition(self, run_id: str, updated_at: datetime, action: str,
+                    failure_code: ErrorCode | None = None) -> EvaluationRun:
+        safe_id = self._run_id(run_id)
+        moment = self._run_time(updated_at)
+        with self._lock:
+            self._require_open()
+            try:
+                self._validate_runtime_storage()
+                with self._engine.begin() as connection:
+                    self._validate_schema(connection)
+                    current = self._fetch_run(connection, safe_id, lock=True)
+                    if moment < current.updated_at:
+                        raise RunStateError()
+                    if action == "start" and current.status is RunStatus.QUEUED:
+                        values = {"status": RunStatus.RUNNING.value, "updated_at": _timestamp(moment)}
+                    elif action == "advance" and current.status is RunStatus.RUNNING and current.completed_scenarios < 61:
+                        values = {"completed_scenarios": current.completed_scenarios + 1,
+                                  "updated_at": _timestamp(moment)}
+                    elif action == "fail" and current.status is RunStatus.RUNNING and type(failure_code) is ErrorCode:
+                        values = {"status": RunStatus.FAILED.value, "failure_code": failure_code.value,
+                                  "updated_at": _timestamp(moment)}
+                    else:
+                        raise RunStateError()
+                    connection.execute(evaluation_runs.update().where(
+                        evaluation_runs.c.run_id == safe_id).values(**values))
+                    return self._fetch_run(connection, safe_id)
+            except (RunNotFoundError, RunStateError, StorageError):
+                raise
+            except Exception:
+                raise StorageError() from None
+
+    def start_run(self, run_id: str, updated_at: datetime) -> EvaluationRun:
+        return self._transition(run_id, updated_at, "start")
+
+    def advance_run(self, run_id: str, updated_at: datetime) -> EvaluationRun:
+        return self._transition(run_id, updated_at, "advance")
+
+    def fail_run(self, run_id: str, failure_code: ErrorCode,
+                 updated_at: datetime) -> EvaluationRun:
+        return self._transition(run_id, updated_at, "fail", failure_code)
+
+    def recover_interrupted_runs(self, recovered_at: datetime) -> int:
+        moment = self._run_time(recovered_at)
+        with self._lock:
+            self._require_open()
+            try:
+                self._validate_runtime_storage()
+                with self._engine.begin() as connection:
+                    self._validate_schema(connection)
+                    rows = connection.execute(select(evaluation_runs).where(
+                        evaluation_runs.c.status == RunStatus.RUNNING.value).with_for_update()).mappings().all()
+                    runs = tuple(self._hydrate_run(row) for row in rows)
+                    if any(moment < run.updated_at for run in runs):
+                        raise RunStateError()
+                    if rows:
+                        run_ids = tuple(run.run_id for run in runs)
+                        if connection.execute(select(evaluation_reports.c.run_id).where(
+                                evaluation_reports.c.run_id.in_(run_ids))).first() is not None:
+                            raise StorageError()
+                        connection.execute(evaluation_runs.update().where(
+                            evaluation_runs.c.status == RunStatus.RUNNING.value).values(
+                                status=RunStatus.INTERRUPTED.value,
+                                failure_code=ErrorCode.INTERNAL_ERROR.value,
+                                updated_at=_timestamp(moment)))
+                    return len(rows)
+            except (RunStateError, StorageError):
+                raise
+            except Exception:
+                raise StorageError() from None
+
+    def complete_run(self, run_id: str, report: Mapping[str, Any],
+                     completed_at: datetime) -> EvaluationRun:
+        safe_id = self._run_id(run_id)
+        moment = self._run_time(completed_at)
+        validator = self._report_validator
+        if validator is None:
+            raise StorageError()
+        with self._lock:
+            self._require_open()
+            try:
+                self._validate_runtime_storage()
+                with self._engine.begin() as connection:
+                    self._validate_schema(connection)
+                    current = self._fetch_run(connection, safe_id, lock=True)
+                    if (current.status is not RunStatus.RUNNING
+                            or current.completed_scenarios != 61
+                            or moment < current.updated_at):
+                        raise RunStateError()
+                    safe, canonical, digest = validate_and_canonicalize_report(
+                        report, expected_run_id=safe_id,
+                        expected_profile=current.profile.value,
+                        expected_scenario_set_version=current.scenario_set_version,
+                        expected_storage_backend=self._backend.value,
+                        expected_generated_at=moment, validator=validator)
+                    generated_at = datetime.fromisoformat(safe["generated_at"].replace("Z", "+00:00"))
+                    stored = StoredReport(run_id=safe_id, report_id=safe["report_id"],
+                        generated_at=generated_at, sha256=digest, canonical_json=canonical)
+                    connection.execute(insert(evaluation_reports).values(
+                        run_id=safe_id, report_id=stored.report_id,
+                        generated_at=_timestamp(stored.generated_at),
+                        canonical_json=canonical.decode("utf-8"), sha256=digest))
+                    connection.execute(evaluation_runs.update().where(
+                        evaluation_runs.c.run_id == safe_id).values(
+                            status=RunStatus.COMPLETED.value, completed_scenarios=62,
+                            updated_at=_timestamp(moment), completed_at=_timestamp(moment),
+                            failure_code=None))
+                    return self._fetch_run(connection, safe_id)
+            except (ReportValidationError, RunNotFoundError, RunStateError, StorageError):
+                raise
+            except Exception:
+                raise StorageError() from None
+
+    def get_report(self, run_id: str) -> StoredReport:
+        safe_id = self._run_id(run_id)
+        with self._lock:
+            self._require_open()
+            try:
+                self._validate_runtime_storage()
+                with self._engine.connect() as connection:
+                    self._validate_schema(connection)
+                    run = self._fetch_run(connection, safe_id)
+                    if run.status in {RunStatus.QUEUED, RunStatus.RUNNING}:
+                        raise ReportNotReadyError()
+                    if run.status in {RunStatus.FAILED, RunStatus.INTERRUPTED}:
+                        raise ReportUnavailableError()
+                    validator = self._report_validator
+                    if validator is None:
+                        raise StorageError()
+                    row = connection.execute(select(evaluation_reports).where(
+                        evaluation_reports.c.run_id == safe_id)).mappings().one()
+                    canonical = row["canonical_json"].encode("utf-8")
+                    safe, exact, digest = validate_and_canonicalize_report(
+                        json.loads(canonical), expected_run_id=safe_id,
+                        expected_profile=run.profile.value,
+                        expected_scenario_set_version=run.scenario_set_version,
+                        expected_storage_backend=self._backend.value,
+                        expected_generated_at=run.completed_at, validator=validator)
+                    if (canonical != exact or digest != row["sha256"]
+                            or safe["report_id"] != row["report_id"]
+                            or _timestamp(datetime.fromisoformat(safe["generated_at"].replace("Z", "+00:00"))) != row["generated_at"]):
+                        raise StorageError()
+                    return StoredReport(run_id=safe_id, report_id=row["report_id"],
+                        generated_at=datetime.fromisoformat(row["generated_at"].replace("Z", "+00:00")),
+                        sha256=digest, canonical_json=canonical)
+            except (ReportNotReadyError, ReportUnavailableError, RunNotFoundError, StorageError):
+                raise
+            except ReportValidationError:
+                raise StorageError() from None
+            except Exception:
+                raise StorageError() from None
 
     def list_events(self, filters: AuditEventFilter) -> AuditEventPage:
         try:
@@ -272,6 +532,8 @@ def create_audit_repository(settings: RuntimeSettings, project_root: Path) -> SQ
     try:
         if type(settings) is not RuntimeSettings:
             raise StorageError()
+        if not isinstance(project_root, Path) or not project_root.is_absolute():
+            raise StorageError()
         safe = RuntimeSettings.model_validate({
             **settings.model_dump(mode="python"),
             "database_dsn": settings.database_dsn_value(),
@@ -291,7 +553,9 @@ def create_audit_repository(settings: RuntimeSettings, project_root: Path) -> SQ
         else:
             location = None
             engine = create_engine(safe.database_dsn_value(), hide_parameters=True)
-        return SQLAlchemyAuditRepository(safe.storage_backend, engine, location, _token=_REPOSITORY_TOKEN)
+        root = Path(os.path.abspath(project_root))
+        return SQLAlchemyAuditRepository(safe.storage_backend, engine, location, root,
+                                         _token=_REPOSITORY_TOKEN)
     except StorageError:
         raise
     except Exception:
