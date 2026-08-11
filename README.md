@@ -214,9 +214,13 @@ database volume. Ollama runs on the host; Compose reaches only the literal
 - `GET /health`: cached startup dependency/readiness facts; no request-time probe.
 
 The Windows demonstration is `scripts/demo.ps1`. It performs preflight,
-validation, index/manifest preparation, Compose startup, health, both chat modes,
-the complete evaluation, JSON/HTML report, and audit retrieval with fixed
-deadlines. It never pulls models or deletes the database volume.
+validation, index/manifest preparation, and Compose startup, then delegates to
+`scripts/demo_client.py` for five fixture-backed cases: baseline cross-role
+leakage evidence, guarded role filtering, guarded indirect injection, guarded
+Canary blocking, and authorized confidential reviewer QA. It then runs the
+complete evaluation, exports sanitized JSON/HTML, and queries audit evidence
+with fixed deadlines. It never prints or writes chat replies, pulls models, or
+deletes the database volume.
 If both prepared artifacts already exist, the script verifies and reuses them;
 if both are absent, it creates and verifies them. A one-artifact state stops for
 manual inspection. Replacement occurs only with the explicit

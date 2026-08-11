@@ -46,6 +46,7 @@ def test_docker_context_excludes_local_state_secrets_and_nonruntime_sources():
 
 def test_demo_artifact_states_overwrite_and_http_timeouts_are_closed():
     value = (ROOT / "scripts/demo.ps1").read_text("utf-8")
+    client = (ROOT / "scripts/demo_client.py").read_text("utf-8")
     assert "[switch]$OverwriteArtifacts" in value
     assert "[ValidateRange(1,65535)]" in value
     assert "[int]$ApiPort = 8000" in value
@@ -57,12 +58,24 @@ def test_demo_artifact_states_overwrite_and_http_timeouts_are_closed():
     assert "Exactly one prepared artifact exists" in value
     assert "@('build-index', '--overwrite')" in value
     assert "@('generate-manifest', '--overwrite')" in value
-    assert "$health = $null" in value
-    http_lines = [line for line in value.splitlines()
-                  if "Invoke-RestMethod" in line or "Invoke-WebRequest" in line]
-    assert http_lines
-    assert all("-TimeoutSec" in line for line in http_lines)
-    assert all("$apiBaseUri" in line for line in http_lines)
+    assert "scripts\\demo_client.py --api-base-uri $apiBaseUri --project-root $root" in value
+    assert "Invoke-RestMethod" not in value
+    assert "Invoke-WebRequest" not in value
+    for step in (
+        "baseline_cross_role",
+        "guarded_role_filter",
+        "guarded_indirect_injection",
+        "guarded_canary_block",
+        "reviewer_confidential_qa",
+        "evaluation_report_audit",
+    ):
+        assert f'print("STEP {step} STATUS ok")' in client
+    assert "CHAT_TIMEOUT_SECONDS = 180.0" in client
+    assert "REQUEST_TIMEOUT_SECONDS = 30.0" in client
+    assert "EVALUATION_DEADLINE_SECONDS = 45.0 * 60.0" in client
+    assert 'reply = parsed.pop("reply", None)' in client
+    assert "del reply" in client
+    assert "print(reply" not in client
     assert "docker compose down -v" not in value
 
 

@@ -56,27 +56,6 @@ if ($OverwriteArtifacts) {
 Invoke-DataGuard @('verify-artifacts')
 docker compose config --quiet
 docker compose up -d --build
-
-$health = $null
-$healthDeadline = (Get-Date).AddMinutes(2)
-do {
-    if ((Get-Date) -gt $healthDeadline) { throw 'API health deadline exceeded.' }
-    try { $health = Invoke-RestMethod "$apiBaseUri/health" -TimeoutSec 5 } catch { Start-Sleep -Seconds 2 }
-} while ($null -eq $health)
-if ($health.status -eq 'unhealthy') { throw 'DataGuard API is unhealthy.' }
-foreach ($mode in @('baseline','guarded')) {
-    $chatBody = @{subject_id='guest-01';question='What is the synthetic public fact?';mode=$mode;corpus_version='synthetic-v1'} | ConvertTo-Json -Compress
-    Invoke-RestMethod "$apiBaseUri/v1/chat" -Method Post -ContentType 'application/json' -Body $chatBody -TimeoutSec 180 | Out-Null
-}
-$run = Invoke-RestMethod "$apiBaseUri/v1/evaluation-runs" -Method Post -ContentType 'application/json' -Body '{"scenario_set_version":"synthetic-v1","profile":"evidence"}' -TimeoutSec 30
-$evaluationDeadline = (Get-Date).AddMinutes(45)
-do {
-    if ((Get-Date) -gt $evaluationDeadline) { throw 'Evaluation polling deadline exceeded.' }
-    Start-Sleep -Seconds 2
-    $state = Invoke-RestMethod "$apiBaseUri/v1/evaluation-runs/$($run.run_id)" -TimeoutSec 30
-} while ($state.status -in @('queued','running'))
-if ($state.status -ne 'completed') { throw "Evaluation ended without a report: $($state.status)" }
-Invoke-WebRequest "$apiBaseUri/v1/reports/$($run.run_id)?format=json" -OutFile 'artifacts/report.json' -TimeoutSec 30
-Invoke-WebRequest "$apiBaseUri/v1/reports/$($run.run_id)?format=html" -OutFile 'artifacts/report.html' -TimeoutSec 30
-Invoke-RestMethod "$apiBaseUri/v1/audit-events?run_id=$($run.run_id)&limit=200" -TimeoutSec 30 | Out-Null
+& .\.venv\Scripts\python scripts\demo_client.py --api-base-uri $apiBaseUri --project-root $root
+if ($LASTEXITCODE -ne 0) { throw 'DataGuard HTTP demonstration failed.' }
 Write-Host 'Demo completed. No model was pulled and no database volume was deleted.'
