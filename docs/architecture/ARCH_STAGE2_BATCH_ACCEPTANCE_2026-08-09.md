@@ -1015,3 +1015,60 @@ errors；该结果未被采信。开发侧与主架构最终证据均使用新�
 
 产品提交 `cd15dad` 与本验收均仅保存到本地。Stage 2 全部实现、唯一测试 agent 独立总验收和
 主架构总验收完成前不执行 push。
+
+## 15. P1 — production composition, lifecycle and bounded metrics
+
+### 15.1 结论
+
+- 产品提交：`a552637`
+- 提交主题：`feat: compose production runtime and bounded metrics`
+- 架构结论：**ACCEPTED FOR LOCAL COMPOSITION; REAL DEPENDENCY EVIDENCE PENDING**
+
+本批把已验收的资源、Ollama adapter、index、RAG、audit/run/report storage、evaluation runner 与
+六端点 API 组合为单一显式生命周期，并加入契约闭合的进程内 metrics；不把 MockTransport/SQLite
+证据解释为真实 Ollama/PostgreSQL 结果。
+
+### 15.2 接受的架构行为
+
+- Import 与 factory 零 I/O；FastAPI lifespan 是唯一自动 startup/shutdown 入口。Startup 固定执行
+  fixture/resource/contract 加载、repository prepare/recovery、index 有界读取、Ollama probe、完整
+  index rebind 和共享 planner/detector/executor/context/runner/scheduler 组合。
+- 本地权威文件或 evidence manifest 无效为 boot-fatal；Ollama/DB 运行依赖失败则启动为缓存的
+  unhealthy runtime，`/health` 可返回 503，依赖端点返回固定目录错误且请求路径不隐式重连。
+- Index missing/corrupt/stale 只形成 cached not-ready；不在启动或请求中静默 rebuild/fallback。
+- Chat 精确执行 embed→plan→generation/detection，并在返回 reply 前写入最小审计；审计失败不返回
+  已生成内容。Evaluation 通过 reservation→create→commit 避免调度容量竞态造成 queued 孤儿。
+- 每个 evaluation mode 产生最小 output-detection audit，包含受控检索 ID、授权拒绝、检测和结果；
+  raw question/context/reply/marker 不持久化。该审计失败使运行 failed 且无报告。
+- Shutdown 停止接纳、取消并等待 owned tasks，再反向关闭 client/repository；重复调用幂等，前序清理
+  故障不阻止后续资源关闭。
+- Metrics version 1 精确锁定 17 项 name/type/unit/label/value、buckets 与 forbidden labels，拒绝重复键
+  和 catalog 漂移；只在真实 operation/lifecycle/evidence 边界更新，不新增第七个 HTTP 路由。
+
+### 15.3 主架构独立证据
+
+| 检查 | 结果 |
+| --- | --- |
+| 生产组合/API/metrics 定向 | `101 passed in 33.63s`，独立安全 basetemp |
+| 完整项目回归 | `699 passed in 104.73s`，独立安全 basetemp |
+| Stage 1 CLI | exit 0；6/30/62；0 issue；digests 不变 |
+| 六端点 SQLite+MockTransport 闭环 | chat、62-pair run、run/audit/report JSON+HTML、health 全部通过 |
+| 精确模型调用 | 单次 chat 加完整 run 共 63 embedding、125 generation |
+| 评测审计 | 124 条 mode event；raw question/reply/context/marker 均不在持久化表示 |
+| Metrics | 四攻击族每模式各 8 attempts、QA 每模式 30、running/terminal/duration 与 Ollama 调用一致 |
+| 依赖失败 | Ollama/DB 离线形成 unhealthy cached state；index 四态不触发 rebuild |
+| 生命周期 | startup 顺序、recovery 调用、admission、取消、shutdown 逆序与幂等均覆盖 |
+| 边界 | compileall、diff check 通过；contracts、scope、依赖和公共 route inventory 未漂移 |
+
+### 15.4 明确保留边界
+
+- `RUN_CREATED` audit 目前是 best-effort：A5b 没有 create-run-plus-audit 原子操作，也没有 queued 删除/
+  失败转换；本批未虚构原子保证。场景证据与报告写入仍是 required/fatal。
+- 进程内 metrics 不回填启动前历史 interrupted run，因为 recovery 只返回聚合计数，无法可靠取得
+  原 profile 与 running 起点；不得伪造 duration 或标签。
+- Scheduler 仅单进程有界协调，不是分布式锁。真实 evidence 仍要求 PostgreSQL、锁定 manifest、
+  实际 Ollama tags/digests/calls 和完整 P2 复验。
+
+### 15.5 Git 状态
+
+产品提交 `a552637` 与本验收均只保存在本地；统一 push 继续推迟到 Stage 2 总验收之后。
