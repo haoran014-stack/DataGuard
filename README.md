@@ -3,11 +3,14 @@
 DataGuard is a local, synthetic-data-only RAG security experiment comparing a
 deliberately vulnerable `baseline` path with one fixed `guarded` path.
 
-> **Stage 2 implementation status:** the repository contains the complete local
-> API/RAG/detector/evaluation/storage implementation, explicit artifact tooling,
-> a six-route production ASGI composition, and an API+PostgreSQL Compose topology.
-> No measured security result is committed. The current development host lacked
-> Docker and Ollama, so real integration/evidence steps remain explicitly NOT RUN.
+> **Current validation status:** Phase 5 real local-Ollama, SQLite, PostgreSQL,
+> and Docker acceptance passed on the recorded synthetic environment; see the
+> [independent Phase 5 test](docs/testing/TEST_PHASE5_DOCKER_POSTGRES_2026-08-11.md)
+> and [Phase 5 architecture acceptance](docs/architecture/ARCH_PHASE5_ACCEPTANCE_2026-08-11.md).
+> The Phase 6 authorized-QA retrieval correction is committed. A new strict
+> manifest bound to that scenario set was generated and passed the local
+> `verify-artifacts` preflight, but the rebuilt image and formal evidence run
+> have not yet been completed or accepted. DataGuard V1 is not released.
 
 ## Project problem and non-goals
 
@@ -284,8 +287,16 @@ operators/thresholds are in the [report schema](docs/contracts/report.schema.jso
 
 ## Limitations
 
-- The implementation exists, but this development host had no Docker/Ollama;
-  real Compose, PostgreSQL, model, and evidence verification is NOT RUN.
+- Real-model, SQLite, PostgreSQL, and Docker checks establish behavior only for
+  the recorded local synthetic experiment and dependency versions; they do not
+  establish portability, production readiness, or behavior on real data.
+- Dependency readiness is cached at explicit application startup rather than
+  re-probed per request. Local port conflicts require selecting an available
+  loopback host port and restarting/reconfiguring the local stack as documented.
+- The Phase 6 scenario-set digest changed after the QA retrieval correction. A
+  new strict manifest was generated and passed local `verify-artifacts`
+  preflight, but the rebuilt-image formal evidence-profile run remains
+  incomplete and unaccepted; V1 remains unpublished.
 - Locks are generated for the recorded Python/platform inputs; regenerate and
   review them when Python, platform, or direct pins change.
 - Synthetic results do not establish performance, safety, or compliance on real data.
