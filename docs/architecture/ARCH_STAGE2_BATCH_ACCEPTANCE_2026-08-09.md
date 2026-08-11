@@ -772,3 +772,86 @@ Stage 2 总实现、独立测试与总架构验收完成前不执行任何 push�
 
 产品提交 `2c16921` 仅保存在本地。本节架构验收创建独立本地提交；按照用户当前交付策略，
 Stage 2 总实现、唯一测试 agent 的独立总验收和主架构总验收完成前不执行 push。
+
+## 12. Batch A6a — closed six-route HTTP contract shell
+
+### 12.1 验收快照与结论
+
+- 产品提交：`11a37cc`
+- 提交主题：`feat: add closed six-route API contract shell`
+- 覆盖需求：`S2-API` 的六端点 HTTP 契约层、固定 Problem Details、report JSON/HTML
+  表示与 side-effect-free dependency injection shell
+- 架构结论：**ACCEPTED WITH CORRECTIONS CLOSED; UNIT-SHELL EVIDENCE ONLY;
+  LOCAL-ONLY DELIVERY**
+
+本批不构成生产应用组合、真实 RAG/API integration、evaluation scheduling、metrics、Compose 或
+真实 Ollama/PostgreSQL 证据。
+
+### 12.2 接受的实现
+
+- FastAPI app factory 只接收注入 service protocol 与预构建 report contract；import/factory 不
+  连接网络、数据库、模型，不读文件、不构建索引。Swagger、Redoc、OpenAPI route 均关闭，
+  route inventory 恰为六个固定端点。
+- 两个 POST 使用 16 KiB 有界流式读取，要求唯一 `application/json` Content-Type、UTF-8、
+  duplicate-key-safe JSON object 和 closed DTO；未知字段、超限、错误编码/媒体类型统一 400。
+- 四类 GET 在调用 service 前统一要求空 body；重复/非法/负/正 Content-Length 均拒绝，且即使
+  缺失或伪报 zero length，stream 首个非空 chunk 也立即固定 400，不缓存剩余正文。
+- UUID、date-time、enum、query allowlist、重复 query 与 limit 均在 HTTP 边界闭合。FastAPI
+  默认 422 不外泄，输入错误统一使用权威 `invalid_request` Problem Details。
+- 每个 endpoint 对 service error 使用独立 code allowlist；16 个 status/retryable/title/detail 与
+  `error-codes.yaml` 逐字段一致。意外异常、错误 endpoint code 和伪造返回值统一最小化为
+  `internal_error`，Cancellation 不被吞掉。
+- Service 返回的 chat、run、audit 和 health 在序列化前重新构造 closed model并执行现有语义
+  validator；API shell 不持久化 question、reply 或异常内容。
+- Report 只能从 A5b `StoredReport` 进入，重新验证 schema、semantic、canonical bytes、digest
+  与 run/report binding。JSON 返回唯一 canonical bytes，不直接访问数据库表。
+- HTML 从同一个受控 validated report 确定性生成，全部动态 JSON 文本经 HTML escaping，
+  self-contained、无 script/外部资源，32 MiB 超限显式失败且不截断。
+- Health endpoint 只序列化注入的 closed health snapshot，不在 request handler 中执行 probe 或
+  connect；healthy/degraded 返回 200，required component down 的 unhealthy 返回 503。
+
+### 12.3 架构纠偏
+
+开发预审发现 domain error 的 `code` 实际是 `str, Enum`；初版只接收 exact `str`，会把合法
+Ollama/RAG 错误误降级为 `internal_error`。最终只安全读取 Enum `.value`，随后仍执行 endpoint
+allowlist 和权威 catalog 校验。
+
+主架构独立负向探针又证明全部 GET 端点曾静默忽略请求体，例如任意 body 的 `/health` 仍返回
+200。这偏离无 requestBody 的 OpenAPI，并形成代理/服务器解析差异面。最终统一 empty-body gate
+覆盖 run、audit、report、health，且原始 ASGI 测试证明 Content-Length 缺失或伪报 0 也不能
+绕过；所有拒绝发生在 service 调用前。
+
+### 12.4 主架构独立验收证据
+
+| 检查 | 结果 |
+| --- | --- |
+| A6a 独立定向回归 | `53 passed in 9.48s`，仓库内独立 basetemp |
+| 完整项目独立回归 | `600 passed in 67.22s` |
+| Stage 1 fixture/catalog CLI | exit 0；6/30/62；0 issue；三份 digest 不变 |
+| Route inventory | 恰好六个；docs/redoc/openapi/metrics/unknown 均非公共 route |
+| POST body boundary | media type、UTF-8、duplicate key、unknown field、16 KiB 超限均覆盖 |
+| GET body boundary | 四端点、CL正/负/非法/重复/缺失/伪零与 raw ASGI stream 均覆盖 |
+| Error catalog | 16 codes 与权威 YAML 的 status/retryable/title/detail 精确一致 |
+| Response drift | forged chat/run/audit/health/report 与错误 endpoint code 均固定 500 |
+| Report HTML | nested injection 全转义、deterministic bytes、无 script、JSON/HTML 同源 |
+| 编译与文本 | compileall、`git diff --check`、7 文件 UTF-8/no-BOM/LF 均通过 |
+| 契约边界 | contracts、Stage 2 scope、依赖均未修改；Canary/credential 扫描通过 |
+
+### 12.5 残余与下一批门槛
+
+- 当前 service 全部是 unit fake/protocol；没有证据证明真实 planner/executor/storage/Ollama 能通过
+  这六个端点闭环，也没有后台 62-pair scheduler。不得称为 API integration 或可运行服务。
+- Application composition 必须从同一 accepted identity/corpus/resource/index/model facts 构造
+  planner、detector、executor、repository 和 health service，关闭 A4b 的跨组件 fingerprint 残余。
+- Startup 必须显式 prepare schema、恢复 running runs、加载/绑定 vector index、probe Ollama；
+  任一失败只能形成确定性 not-ready/显式错误，禁止请求路径静默 fallback 或隐式 rebuild。
+- `ERROR_CATALOG` 当前是代码内闭合快照，并由精确契约测试防漂移；后续若权威 YAML 变更，
+  必须同步代码并通过 exact comparison，不能独立演化。
+- Unknown route/405 返回空响应，不属于六端点公共 Problem Details 契约；不得把它计为第七 API。
+- 下一批 production application service 不得绕过 DTO、service error allowlist、A5b report gate，
+  也不得在 API handler 中嵌入 evaluation 或模型降级逻辑。
+
+### 12.6 Git 交付状态
+
+产品提交 `11a37cc` 仅保存在本地。本节架构验收创建独立本地提交；按照用户当前交付策略，
+Stage 2 总实现、唯一测试 agent 独立总验收与主架构总验收完成前不执行 push。
