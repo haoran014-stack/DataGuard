@@ -36,7 +36,11 @@ def _run(awaitable: Awaitable[Any]) -> Any:
 
 
 def _json_response(payload: Any, *, status: int = 200) -> httpx.Response:
-    return httpx.Response(status, json=payload, headers={"Content-Type": "application/json"})
+    return httpx.Response(
+        status,
+        json=payload,
+        headers={"Content-Type": "application/json; charset=utf-8"},
+    )
 
 
 def _probe_handler(requests: list[httpx.Request]) -> Callable[[httpx.Request], Awaitable[httpx.Response]]:
@@ -54,12 +58,14 @@ def _probe_handler(requests: list[httpx.Request]) -> Callable[[httpx.Request], A
                             "digest": DIGEST_A,
                             "size": 1,
                             "details": {},
+                            "capabilities": ["completion", "tools"],
                         },
                         {
                             "name": EMBEDDING_MODEL,
                             "model": EMBEDDING_MODEL,
                             "digest": DIGEST_B,
                             "modified_at": "2026-08-09T00:00:00Z",
+                            "capabilities": ["embedding"],
                         },
                     ]
                 }
@@ -76,6 +82,9 @@ def _probe_handler(requests: list[httpx.Request]) -> Callable[[httpx.Request], A
                     "parameters": "synthetic",
                     "details": {},
                     "capabilities": ["embedding"],
+                    "tensors": [
+                        {"name": "synthetic.weight", "shape": [1024, 1024], "type": "F16"}
+                    ],
                 }
             )
         raise AssertionError("unexpected request")
@@ -154,6 +163,7 @@ def test_probe_uses_exact_local_requests_and_returns_minimized_frozen_facts() ->
         "embedding_dimensions": 1024,
     }
     assert RAW_SENTINEL not in facts.model_dump_json()
+    assert "capabilities" not in facts.model_dump_json()
     with pytest.raises(ValidationError):
         OllamaHealthFacts.model_validate({**facts.model_dump(), "unknown": True})
     with pytest.raises(ValidationError):
@@ -639,6 +649,29 @@ def test_probe_tags_require_unique_exact_models_and_valid_digests(
 
 
 @pytest.mark.parametrize(
+    "capabilities",
+    [RAW_SENTINEL, [""], [True], ["embedding", "embedding"], ["x" * 65], ["x"] * 33],
+)
+def test_probe_tags_accepts_only_bounded_capability_lists_without_retention(
+    capabilities: Any,
+) -> None:
+    requests: list[httpx.Request] = []
+    base_handler = _probe_handler(requests)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        response = await base_handler(request)
+        if request.url.path != "/api/tags":
+            return response
+        payload = json.loads(response.content)
+        payload["models"][0]["capabilities"] = capabilities
+        return _json_response(payload)
+
+    with pytest.raises(OllamaAdapterError) as captured:
+        _run(_probe_with_handler(handler))
+    _assert_error(captured.value, OllamaErrorCode.MODEL_PROTOCOL_ERROR)
+
+
+@pytest.mark.parametrize(
     "model_info",
     [
         {},
@@ -657,6 +690,35 @@ def test_show_requires_one_positive_integer_embedding_dimension(
         if request.url.path == "/api/show":
             return _json_response({"model_info": model_info})
         return await base_handler(request)
+
+    with pytest.raises(OllamaAdapterError) as captured:
+        _run(_probe_with_handler(handler))
+    _assert_error(captured.value, OllamaErrorCode.MODEL_PROTOCOL_ERROR)
+
+
+@pytest.mark.parametrize(
+    "tensors",
+    [
+        RAW_SENTINEL,
+        [{}],
+        [{"name": "x", "shape": [1], "type": "F16", "raw": RAW_SENTINEL}],
+        [{"name": "", "shape": [1], "type": "F16"}],
+        [{"name": "x", "shape": [], "type": "F16"}],
+        [{"name": "x", "shape": [True], "type": "F16"}],
+        [{"name": "x", "shape": [0], "type": "F16"}],
+    ],
+)
+def test_show_accepts_only_bounded_tensor_metadata_without_retention(tensors: Any) -> None:
+    requests: list[httpx.Request] = []
+    base_handler = _probe_handler(requests)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        response = await base_handler(request)
+        if request.url.path != "/api/show":
+            return response
+        payload = json.loads(response.content)
+        payload["tensors"] = tensors
+        return _json_response(payload)
 
     with pytest.raises(OllamaAdapterError) as captured:
         _run(_probe_with_handler(handler))

@@ -19,6 +19,11 @@ GENERATION_MODEL = "qwen2.5:3b-instruct"
 EMBEDDING_MODEL = "qwen3-embedding:0.6b"
 
 MAX_TAG_RECORDS = 1_024
+MAX_MODEL_CAPABILITIES = 32
+MAX_MODEL_CAPABILITY_CHARS = 64
+MAX_TENSOR_RECORDS = 16_384
+MAX_TENSOR_RANK = 16
+MAX_TENSOR_FIELD_CHARS = 256
 MAX_MODEL_INFO_FIELDS = 4_096
 MAX_EMBED_INPUTS = 64
 MAX_EMBED_INPUT_CHARS = 8_192
@@ -30,7 +35,7 @@ _DIGEST_PATTERN = re.compile(r"^(?:sha256:)?[a-f0-9]{64}$")
 _CONTENT_LENGTH_PATTERN = re.compile(r"^[0-9]+$")
 
 _TAG_ENTRY_FIELDS = frozenset(
-    {"name", "model", "modified_at", "size", "digest", "details"}
+    {"name", "model", "modified_at", "size", "digest", "details", "capabilities"}
 )
 _SHOW_FIELDS = frozenset(
     {
@@ -42,6 +47,7 @@ _SHOW_FIELDS = frozenset(
         "model_info",
         "capabilities",
         "modified_at",
+        "tensors",
     }
 )
 _EMBED_FIELDS = frozenset(
@@ -302,6 +308,20 @@ class OllamaClient:
             )
             if "details" in entry and type(entry["details"]) is not dict:
                 _raise_protocol()
+            if "capabilities" in entry:
+                capabilities = entry["capabilities"]
+                if (
+                    type(capabilities) is not list
+                    or len(capabilities) > MAX_MODEL_CAPABILITIES
+                    or any(
+                        type(capability) is not str
+                        or not capability
+                        or len(capability) > MAX_MODEL_CAPABILITY_CHARS
+                        for capability in capabilities
+                    )
+                    or len(set(capabilities)) != len(capabilities)
+                ):
+                    _raise_protocol()
             if name in {GENERATION_MODEL, EMBEDDING_MODEL}:
                 if name in found:
                     _raise_protocol()
@@ -344,6 +364,29 @@ class OllamaClient:
         )
         if "details" in show and type(show["details"]) is not dict:
             _raise_protocol()
+        if "tensors" in show:
+            tensors = show["tensors"]
+            if type(tensors) is not list or len(tensors) > MAX_TENSOR_RECORDS:
+                _raise_protocol()
+            for tensor_value in tensors:
+                tensor = _closed_object(
+                    tensor_value,
+                    required=frozenset({"name", "shape", "type"}),
+                    allowed=frozenset({"name", "shape", "type"}),
+                )
+                if (
+                    type(tensor["name"]) is not str
+                    or not tensor["name"]
+                    or len(tensor["name"]) > MAX_TENSOR_FIELD_CHARS
+                    or type(tensor["type"]) is not str
+                    or not tensor["type"]
+                    or len(tensor["type"]) > MAX_TENSOR_FIELD_CHARS
+                    or type(tensor["shape"]) is not list
+                    or not tensor["shape"]
+                    or len(tensor["shape"]) > MAX_TENSOR_RANK
+                    or any(type(size) is not int or size <= 0 for size in tensor["shape"])
+                ):
+                    _raise_protocol()
         if "capabilities" in show and (
             type(show["capabilities"]) is not list
             or any(type(value) is not str for value in show["capabilities"])
