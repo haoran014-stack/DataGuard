@@ -540,3 +540,76 @@ Stage 2 总验收。
 本次 push 被 Codex 外部执行额度限制拒绝，未向远端发送数据；这不是 GitHub SSH
 认证失败。产品提交与本节独立架构记录提交必须由用户终端执行一次
 `git push origin main` 上传并核对远端 SHA 后，才能开始 A4b。
+
+## 9. Batch A4b — guarded RAG execution
+
+### 9.1 验收快照与结论
+
+- 产品提交：`7b408772d3016cef79d511fd27e25dad58823135`
+- 提交主题：`feat: add guarded RAG execution`
+- 覆盖需求：`S2-OLLAMA` generation 子集、`S2-RAG` 输出路径及 `S2-DETECT` gate 组合
+- 架构结论：**ACCEPTED WITH CORRECTIONS CLOSED; LOCAL-ONLY DELIVERY**
+
+本批只接受已验证 `RagPlan` 到最终内存回复的 generation/detector 编排，不包含
+audit/storage、HTTP API、evaluation、report 或 metrics。
+
+### 9.2 接受的实现
+
+- 受控、冻结的 executor 只消费 A4a 已生成的 messages；每次执行精确调用一次
+  `OllamaClient.chat`，随后将完整 raw output 原样交给同一个 A2c detector 一次。
+- mode 只能从 `RagPlan.mode` 映射，role 只能来自 `RagPlan.resolved_role`；调用方不能
+  另传 role、mode、messages、detector action 或输出结论。
+- baseline 对所有成功模型输出保持 `answered` 和原文 reply，命中 evidence 只能
+  `observed`；guarded 无 violation 时原样回答，有任一 violation 时结果只保留固定
+  双语 reply、`blocked` outcome 和最小 evidence。
+- Ollama unavailable、timeout 和 protocol errors 不被 executor 捕获或替换；async
+  cancellation 原样传播且 detector 不运行。内部 plan/result 漂移统一为固定
+  `internal_error` 与公共目录文案，不包含 raw output 或依赖异常文本。
+- 最终 result 可显式读取 reply 供后续 API 返回，但无 `model_dump`，默认 repr 不包含
+  reply/raw/messages；中间 `DetectorResult.reply` 同样从 repr 隐藏。
+- 执行路径不调用 embedding、retrieval、index store、audit 或数据库，也不重新拼装、
+  normalize、截断或降级模型输出。
+
+### 9.3 架构纠偏
+
+主架构预审要求内部错误文案直接复用公共 `internal_error` detail，避免重复语义漂移；
+要求 result/executor 冻结性有直接反例，并证明 cancellation 不被安全错误包装。
+
+另增加真实组合用例：从同一 accepted fixture、资源、index 和 QueryEmbedding 生成
+baseline/guarded A4a plans，再通过同一个 A4b executor 执行；执行前后 embedding 和
+retrieve 调用计数不变。该用例证明 A4b 与真实 A4a 输出闭合，而不是只接受测试伪造
+plan。
+
+### 9.4 主架构验收证据
+
+| 检查 | 结果 |
+| --- | --- |
+| A4b/A4a/A2b/A2c 独立定向 | `199 passed in 4.03s`，全新仓库内 basetemp |
+| 完整项目独立回归 | `490 passed in 19.89s`，全新仓库内 basetemp |
+| Stage 1 fixture/catalog CLI | exit 0，6/30/62，0 issue，三份 digest 不变 |
+| 调用顺序 | exact messages → chat once → complete raw → detector once |
+| Baseline/guarded gate | 三类命中、授权/越权 fragment、空输出、Unicode/zero-width 均覆盖 |
+| 失败与取消 | Ollama error/cancellation 原样传播且 detector 零调用；内部漂移固定 500 语义 |
+| 真实 A4a 组合 | paired plans 共用 query embedding；A4b 不增加 embed/retrieve 调用 |
+| 内容安全 | blocked result、result/intermediate repr、错误均不保留或回显 raw sentinel |
+| 范围隔离 | embed/retrieve/index store 禁止调用；无 audit/storage/API/eval 代码 |
+| 编译与格式 | validation、`compileall`、`git diff --check` 均 exit 0 |
+| 文本与凭据 | 5/5 UTF-8/no-BOM/LF/final-LF/no trailing whitespace；credential 0 命中 |
+| 契约边界 | `docs/contracts/` 与 Stage 2 scope 未修改 |
+
+### 9.5 残余与下一批门槛
+
+- Executor 尚无 planner/detector 的跨组件 Corpus/资源 binding fingerprint。后续
+  application composition factory 必须从同一 accepted fixture/resource bundle 构造
+  planner、detector、index 和 executor，并将不一致映射为启动失败；在该门关闭前不得
+  声称任意外部组装均安全。
+- Guarded raw output 只在 generation→detector 的当前栈帧中瞬时存在；后续 storage/
+  audit 必须只接收最终 result 和最小 plan evidence，禁止接收 raw output、messages、
+  question、document content 或 marker literal。
+- 当前仍无真实 Ollama/PostgreSQL/API/evaluation 证据，不产生任何实验指标。
+
+### 9.6 Git 交付状态
+
+用户已在 A4b 开始前明确修改交付策略：后续批次只创建本地独立提交，Stage 2 全部
+实现、独立测试和总架构验收完成后再统一 push。因此第 8.6 节的逐批远端交付门已被
+此新指令取代。产品提交和本节架构提交均只保存在本地；本批不得执行 push。
