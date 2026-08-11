@@ -64,7 +64,7 @@ class DetectionEvidence(_ClosedFrozenModel):
 
 
 class DetectorResult(_ClosedFrozenModel):
-    reply: str = Field(strict=True)
+    reply: str = Field(strict=True, repr=False)
     outcome: DetectorOutcome
     detections: tuple[DetectionEvidence, ...]
 
