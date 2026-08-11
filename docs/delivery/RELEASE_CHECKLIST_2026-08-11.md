@@ -1,8 +1,9 @@
 # DataGuard V1 release checklist - 2026-08-11
 
 This checklist maps the seven-stage roadmap's Phase 6 deliverables and gates to
-the evidence candidate for run `51790e29-93a5-49f1-81d7-b866bb8cd881`. Passing
-the evidence gates does not itself create or approve a release.
+the accepted evidence for run `51790e29-93a5-49f1-81d7-b866bb8cd881`. The
+[final architecture decision](../architecture/ARCH_PHASE6_FINAL_ACCEPTANCE_2026-08-11.md)
+authorizes the local V1 release; remote publication remains user-controlled.
 
 ## Delivery mapping
 
@@ -38,8 +39,8 @@ manifest. Independent recomputation and privacy checks are documented in
 | JSON/HTML/manifest archive hashes | match `SHA256SUMS` and independent evidence | all matched | Pass |
 | README measurements trace to archived evidence | every reported number links to the archive and independent report | mapped in README | Complete |
 | Unit, real-model, PostgreSQL, and manifest evidence | 764 deterministic tests; independent real dependency/artifact checks passed | recorded in independent report | Pass |
-| Final architecture requirements and residual-risk acceptance | architecture owner decision | not yet recorded | **Pending** |
-| Create annotated/lightweight `v1.0.0` tag | only after final acceptance | not created | **Pending** |
+| Final architecture requirements and residual-risk acceptance | [final architecture decision](../architecture/ARCH_PHASE6_FINAL_ACCEPTANCE_2026-08-11.md) | accepted | **Complete** |
+| Create annotated `v1.0.0` tag | authorized for the final release commit; verify with `git tag --points-at HEAD` | release procedure | **Authorized** |
 | Remote push of release commit/tag | user-controlled publication step | deferred by user | **Deferred** |
 
 ## Reverification commands
@@ -57,5 +58,6 @@ git diff --check
 ```
 
 Expected archive hashes are recorded only in
-[`reports/v1.0.0/SHA256SUMS`](../../reports/v1.0.0/SHA256SUMS). No release tag or
-remote push is authorized by this checklist.
+[`reports/v1.0.0/SHA256SUMS`](../../reports/v1.0.0/SHA256SUMS). The final
+architecture decision authorizes the local release commit and annotated tag;
+it does not authorize a remote push.

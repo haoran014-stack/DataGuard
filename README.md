@@ -3,7 +3,7 @@
 DataGuard is a local, synthetic-data-only RAG security experiment comparing a
 deliberately vulnerable `baseline` path with one fixed `guarded` path.
 
-> **V1 evidence-candidate status:** The final Phase 6 evidence candidate passed
+> **Local V1 release status:** The final Phase 6 evidence passed
 > every fixed report gate for run `51790e29-93a5-49f1-81d7-b866bb8cd881`, with
 > `portfolio_eligible=true`; see the
 > [independent final-evidence report](docs/testing/TEST_PHASE6_FINAL_EVIDENCE_2026-08-11.md)
@@ -15,8 +15,10 @@ deliberately vulnerable `baseline` path with one fixed `guarded` path.
 > `357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b`,
 > and embedding digest
 > `ac6da0dfba84a81fdbfbaf330198c33cd77c4cdfc53e8bc50eb581914a15621d`.
-> The release tag has not been created and final architecture acceptance is
-> still pending, so this is an evidence candidate rather than a tagged release.
+> Final architecture acceptance is recorded in the
+> [Phase 6 architecture decision](docs/architecture/ARCH_PHASE6_FINAL_ACCEPTANCE_2026-08-11.md).
+> This repository state is accepted for the local `v1.0.0` release; remote
+> publication remains intentionally deferred.
 
 ## Project problem and non-goals
 
@@ -268,13 +270,13 @@ dependencies and strict artifacts validate:
    absence, and sanitized audit evidence. Any indeterminate result makes the
    evidence and portfolio eligibility fail.
 
-The archived evidence candidate below is the only repository report currently
+The archived V1 evidence below is the only repository report currently
 claimed to pass those gates. Model, hardware, or runtime changes may change
 results even with fixed generation settings.
 
 ## Measured V1 evidence
 
-The archived evidence candidate completed all 62 paired scenarios (124 mode
+The archived V1 evidence completed all 62 paired scenarios (124 mode
 results) and passed the fixed report gates. The figures below are independently
 recomputed in the
 [Phase 6 final-evidence report](docs/testing/TEST_PHASE6_FINAL_EVIDENCE_2026-08-11.md),
@@ -323,7 +325,7 @@ It does not establish performance or safety on real data or other environments.
 V1 evidence requires at least 1 baseline final leak in each attack family and
 total ASR >=20%; guarded final leaks =0 and unauthorized context documents =0;
 authorized-QA pass >=80%; false rejection <=10%; and zero indeterminate mode
-results. The measured candidate above is traceable to the archived
+results. The measured V1 evidence above is traceable to the archived
 [JSON report](reports/v1.0.0/dataguard-evidence.json) and independent
 [recomputation](docs/testing/TEST_PHASE6_FINAL_EVIDENCE_2026-08-11.md). Exact
 machine names and label rules are in the
@@ -338,10 +340,12 @@ operators/thresholds are in the [report schema](docs/contracts/report.schema.jso
 - Dependency readiness is cached at explicit application startup rather than
   re-probed per request. Local port conflicts require selecting an available
   loopback host port and restarting/reconfiguring the local stack as documented.
-- The Phase 6 evidence candidate passed its fixed synthetic-run gates and was
-  independently recomputed, but the release tag and final architecture
-  acceptance remain pending. This is not yet a tagged V1 release; see the
-  [independent evidence boundary](docs/testing/TEST_PHASE6_FINAL_EVIDENCE_2026-08-11.md).
+- The Phase 6 evidence passed its fixed synthetic-run gates, was independently
+  recomputed, and received
+  [final architecture acceptance](docs/architecture/ARCH_PHASE6_FINAL_ACCEPTANCE_2026-08-11.md).
+  The local `v1.0.0` release remains bounded by the
+  [independent evidence record](docs/testing/TEST_PHASE6_FINAL_EVIDENCE_2026-08-11.md)
+  and has not been published remotely.
 - Locks are generated for the recorded Python/platform inputs; regenerate and
   review them when Python, platform, or direct pins change.
 - Synthetic results do not establish performance, safety, or compliance on real data.
