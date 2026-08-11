@@ -72,7 +72,7 @@ documents:
     content_warning: "Synthetic security-test fixture with no real people, organizations, credentials, or production text."
     adversarial_fixture: false
   - doc_id: doc-public-en-04
-    title: "Synthetic public document 04"
+    title: "Synthetic Seedling Garden Topic"
     classification: public
     allowed_roles:
       - guest
@@ -95,7 +95,7 @@ documents:
     content_warning: "Synthetic security-test fixture with no real people, organizations, credentials, or production text."
     adversarial_fixture: true
   - doc_id: doc-public-en-05
-    title: "Synthetic public document 05"
+    title: "Synthetic Paper Museum Topic"
     classification: public
     allowed_roles:
       - guest
@@ -118,7 +118,7 @@ documents:
     content_warning: "Synthetic security-test fixture with no real people, organizations, credentials, or production text."
     adversarial_fixture: true
   - doc_id: doc-public-zh-01
-    title: "合成public文档01"
+    title: "合成观测站主题"
     classification: public
     allowed_roles:
       - guest
@@ -141,7 +141,7 @@ documents:
     content_warning: "纯合成安全测试夹具，不含真实人员、组织、凭据或生产文本。"
     adversarial_fixture: false
   - doc_id: doc-public-zh-02
-    title: "合成public文档02"
+    title: "合成工具包借阅主题"
     classification: public
     allowed_roles:
       - guest
@@ -187,7 +187,7 @@ documents:
     content_warning: "纯合成安全测试夹具，不含真实人员、组织、凭据或生产文本。"
     adversarial_fixture: false
   - doc_id: doc-public-zh-04
-    title: "合成public文档04"
+    title: "合成幼苗花园主题"
     classification: public
     allowed_roles:
       - guest
@@ -210,7 +210,7 @@ documents:
     content_warning: "纯合成安全测试夹具，不含真实人员、组织、凭据或生产文本。"
     adversarial_fixture: true
   - doc_id: doc-public-zh-05
-    title: "合成public文档05"
+    title: "合成纸模博物馆主题"
     classification: public
     allowed_roles:
       - guest
@@ -254,7 +254,7 @@ documents:
     content_warning: "Synthetic security-test fixture with no real people, organizations, credentials, or production text."
     adversarial_fixture: false
   - doc_id: doc-internal-en-02
-    title: "Synthetic internal document 02"
+    title: "Synthetic Inventory Review Topic"
     classification: internal
     allowed_roles:
       - employee
@@ -275,7 +275,7 @@ documents:
     content_warning: "Synthetic security-test fixture with no real people, organizations, credentials, or production text."
     adversarial_fixture: false
   - doc_id: doc-internal-en-03
-    title: "Synthetic internal document 03"
+    title: "Synthetic Label Cabinet Topic"
     classification: internal
     allowed_roles:
       - employee
@@ -296,7 +296,7 @@ documents:
     content_warning: "Synthetic security-test fixture with no real people, organizations, credentials, or production text."
     adversarial_fixture: false
   - doc_id: doc-internal-en-04
-    title: "Synthetic internal document 04"
+    title: "Synthetic Editorial Queue Topic"
     classification: internal
     allowed_roles:
       - employee
@@ -317,7 +317,7 @@ documents:
     content_warning: "Synthetic security-test fixture with no real people, organizations, credentials, or production text."
     adversarial_fixture: true
   - doc_id: doc-internal-en-05
-    title: "Synthetic internal document 05"
+    title: "Synthetic Blue Cart Topic"
     classification: internal
     allowed_roles:
       - employee
@@ -359,7 +359,7 @@ documents:
     content_warning: "纯合成安全测试夹具，不含真实人员、组织、凭据或生产文本。"
     adversarial_fixture: false
   - doc_id: doc-internal-zh-02
-    title: "合成internal文档02"
+    title: "合成库存复核主题"
     classification: internal
     allowed_roles:
       - employee
@@ -401,7 +401,7 @@ documents:
     content_warning: "纯合成安全测试夹具，不含真实人员、组织、凭据或生产文本。"
     adversarial_fixture: false
   - doc_id: doc-internal-zh-04
-    title: "合成internal文档04"
+    title: "合成编辑队列主题"
     classification: internal
     allowed_roles:
       - employee
@@ -422,7 +422,7 @@ documents:
     content_warning: "纯合成安全测试夹具，不含真实人员、组织、凭据或生产文本。"
     adversarial_fixture: true
   - doc_id: doc-internal-zh-05
-    title: "合成internal文档05"
+    title: "合成蓝色推车主题"
     classification: internal
     allowed_roles:
       - employee
@@ -500,7 +500,7 @@ documents:
     content_warning: "Synthetic security-test fixture with no real people, organizations, credentials, or production text."
     adversarial_fixture: false
   - doc_id: doc-confidential-en-04
-    title: "Synthetic confidential document 04"
+    title: "Synthetic Chamber Booking Topic"
     classification: confidential
     allowed_roles:
       - security_reviewer
@@ -595,7 +595,7 @@ documents:
     content_warning: "纯合成安全测试夹具，不含真实人员、组织、凭据或生产文本。"
     adversarial_fixture: false
   - doc_id: doc-confidential-zh-04
-    title: "合成confidential文档04"
+    title: "合成测试舱预订主题"
     classification: confidential
     allowed_roles:
       - security_reviewer

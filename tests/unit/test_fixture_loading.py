@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import codecs
 import hashlib
+import json
 import unicodedata
 from collections import Counter
 from pathlib import Path
@@ -42,6 +43,24 @@ QA_RETRIEVAL_ANCHOR_SCENARIO_IDS = {
     "qa-22-confidential-en",
     "qa-24-confidential-en",
     "qa-29-confidential-zh",
+}
+
+RETRIEVAL_TOPIC_DOCUMENT_DIGESTS = {
+    "doc-confidential-en-04": "336ec5397c4aaa116aaebcaa32a5d5d251d87edd6a40d5fa414b5392d2a25d51",
+    "doc-confidential-zh-04": "d2e2ed34b14a05309651a6a97e573a730591753e8df5c70fec8bd598f59ec44e",
+    "doc-internal-en-02": "e857ee2575235a37765bbb3e4ffe4c77441c7cdec8bf45b778e071649b1fc8f5",
+    "doc-internal-en-03": "8be7e5aff1e3dcaccc6bb8a5f820eac95aa3a17b3298e7481b71e43628cd368f",
+    "doc-internal-en-04": "8d6cd1e4062a175142e3342386683aa567ac180248703c1718d96873e0362028",
+    "doc-internal-en-05": "a6111017afa9d29921b4d8d010224a7db6edf9078c5d83f28a766d01c552c72b",
+    "doc-internal-zh-02": "49f405258126697c081084017e71545182123b3d7627dd462dacb785bde87ec0",
+    "doc-internal-zh-04": "a26260b22ddbc7217b4619381c95099293e652ee9d62939fab1830200b18918e",
+    "doc-internal-zh-05": "5c535d5b8f2f29b00a56bfd26ca0b5ae0ca325c4036a35c46918de766eade6a1",
+    "doc-public-en-04": "a9c3cf15eb723596b3911e4a29336077879cc166213c9f0b031872391e116f55",
+    "doc-public-en-05": "744a72f0e85521adb0c096e491d63ebd083dd717b5cab11193650bd89670c182",
+    "doc-public-zh-01": "cb9fec427c08a817ab6175cad21e3e3e3342cb6ae4a5ab340c6e0f0f47343769",
+    "doc-public-zh-02": "83a4077002b252c4d9953232a54c92386aba43317c9c0290bb30cd45557c1633",
+    "doc-public-zh-04": "7f9134c8d282fe0f7f4199c181abc59d7110881cb66a5048205933812d2e1e9a",
+    "doc-public-zh-05": "dd2cabe24572485ac3de87eeafc30ace6e0d17c2646c9106e6d93c07f5cd6e68",
 }
 
 
@@ -150,6 +169,59 @@ def test_corrected_qa_questions_use_only_safe_target_title_anchors() -> None:
         normalized_question = normalized_text(scenario.question)
 
         assert normalized_text(target.title) in normalized_question
+        assertions = (
+            *scenario.expected.must_include,
+            *scenario.expected.any_of,
+            *scenario.expected.must_not_include,
+        )
+        assert all(normalized_text(value) not in normalized_question for value in assertions)
+        assert all(normalized_text(value) not in normalized_question for value in marker_values)
+
+
+def test_retrieval_topic_titles_and_linked_questions_are_closed() -> None:
+    result = load_fixture_bundle(PROJECT_ROOT)
+    assert result.bundle is not None
+    corpus = result.bundle.corpus
+    documents = {document.doc_id: document for document in corpus.documents}
+    renamed_ids = set(RETRIEVAL_TOPIC_DOCUMENT_DIGESTS)
+    normalized_titles = [normalized_text(document.title) for document in corpus.documents]
+    assert len(renamed_ids) == 15
+    assert len(normalized_titles) == len(set(normalized_titles)) == 30
+
+    for doc_id, expected_digest in RETRIEVAL_TOPIC_DOCUMENT_DIGESTS.items():
+        document = documents[doc_id]
+        raw = document.model_dump(mode="json")
+        raw.pop("title")
+        digest = hashlib.sha256(json.dumps(
+            raw, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")).hexdigest()
+        assert digest == expected_digest
+        if document.language.value == "en":
+            assert document.title.isascii() and 2 <= len(document.title.split()) <= 4
+        else:
+            assert any(ord(character) > 127 for character in document.title)
+            assert " " not in document.title
+
+    linked = [
+        scenario
+        for scenario in result.bundle.scenarios.scenarios
+        if scenario.family in {
+            ScenarioFamily.AUTHORIZED_QA,
+            ScenarioFamily.INDIRECT_DOCUMENT_INJECTION,
+        }
+        and any(target in renamed_ids for target in scenario.attack_target_ids)
+    ]
+    assert len(linked) == 23
+    marker_values = tuple(
+        marker.value
+        for document in corpus.documents
+        for marker in (*document.canaries, *document.protected_fragments)
+    )
+    for scenario in linked:
+        assert len(scenario.attack_target_ids) == 1
+        title = documents[scenario.attack_target_ids[0]].title
+        normalized_question = normalized_text(scenario.question)
+        assert normalized_text(title) in normalized_question
         assertions = (
             *scenario.expected.must_include,
             *scenario.expected.any_of,
