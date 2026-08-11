@@ -113,10 +113,20 @@ class StoredIndexFacts(BaseModel):
     dimensions: int = Field(strict=True, ge=1, le=MAX_VECTOR_DIMENSIONS)
 
 
-@dataclass(frozen=True, slots=True, repr=False)
+_LOADED_TOKEN = object()
+
+
+@dataclass(frozen=True, slots=True, repr=False, init=False)
 class LoadedVectorIndex:
     validated_index: ValidatedVectorIndex
     facts: StoredIndexFacts
+
+    def __init__(self, validated_index: ValidatedVectorIndex,
+                 facts: StoredIndexFacts, *, _token: object) -> None:
+        if _token is not _LOADED_TOKEN:
+            _raise_store_error(StoredIndexErrorCode.STALE)
+        object.__setattr__(self, "validated_index", validated_index)
+        object.__setattr__(self, "facts", facts)
 
     def __repr__(self) -> str:
         return (
@@ -124,6 +134,63 @@ class LoadedVectorIndex:
             f"format={self.facts.format!r}, documents={self.facts.document_count}, "
             f"dimensions={self.facts.dimensions})"
         )
+
+
+def create_loaded_vector_index(
+    validated_index: ValidatedVectorIndex,
+    facts: StoredIndexFacts,
+) -> LoadedVectorIndex:
+    """Create a loaded handle only when facts match the actual canonical artifact."""
+
+    try:
+        if type(validated_index) is not ValidatedVectorIndex or type(facts) is not StoredIndexFacts:
+            raise ValueError
+        safe_facts = StoredIndexFacts.model_validate(
+            facts.model_dump(mode="python", warnings=False)
+        )
+        raw = canonical_vector_index_bytes(validated_index._artifact)
+        expected = StoredIndexFacts(
+            artifact_sha256=vector_index_sha256(raw),
+            format=validated_index._artifact.format,
+            document_count=validated_index.document_count,
+            dimensions=validated_index.dimensions,
+        )
+        if safe_facts != expected:
+            raise ValueError
+    except VectorIndexStoreError:
+        raise
+    except Exception:
+        _raise_store_error(StoredIndexErrorCode.STALE)
+    return LoadedVectorIndex(validated_index, safe_facts, _token=_LOADED_TOKEN)
+
+
+def validate_loaded_vector_index(value: object) -> LoadedVectorIndex:
+    """Revalidate a controlled handle against its current canonical artifact bytes."""
+
+    if type(value) is not LoadedVectorIndex:
+        _raise_store_error(StoredIndexErrorCode.STALE)
+    return create_loaded_vector_index(value.validated_index, value.facts)
+
+
+def revalidate_loaded_vector_index(
+    value: object,
+    corpus: Corpus,
+    corpus_sha256: str,
+    health: OllamaHealthFacts,
+) -> LoadedVectorIndex:
+    """Rebind the actual artifact to accepted corpus/model facts and refresh the handle."""
+
+    try:
+        if type(value) is not LoadedVectorIndex:
+            raise ValueError
+        fresh = validate_vector_index_binding(
+            value.validated_index._artifact, corpus, corpus_sha256, health
+        )
+        return create_loaded_vector_index(fresh, value.facts)
+    except VectorIndexStoreError:
+        raise
+    except Exception:
+        _raise_store_error(StoredIndexErrorCode.STALE)
 
 
 def _is_reparse(metadata: os.stat_result) -> bool:
@@ -463,10 +530,7 @@ class VectorIndexStore:
                 )
             except VectorIndexError:
                 _raise_store_error(StoredIndexErrorCode.STALE)
-            return LoadedVectorIndex(
-                validated_index=validated,
-                facts=self._facts(raw, artifact),
-            )
+            return create_loaded_vector_index(validated, self._facts(raw, artifact))
 
     def _owned_temp_metadata(self, path: Path, expected: os.stat_result) -> os.stat_result:
         if path.parent != self._runtime_dir:

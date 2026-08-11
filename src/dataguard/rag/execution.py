@@ -19,7 +19,7 @@ from dataguard.detector import (
 from dataguard.domain import Role
 from dataguard.ollama import OllamaClient, OllamaMessage
 from dataguard.rag.errors import RagPlanningError
-from dataguard.rag.models import AuthorizationDenial, RagMode, RagPlan
+from dataguard.rag.models import AuthorizationDenial, RagMode, RagPlan, _rag_plan_integrity
 from dataguard.rag.planner import NUM_CTX, NUM_PREDICT, context_message_bytes
 from dataguard.resources import FIXED_BLOCKED_REPLY
 from dataguard.vector_index import RetrievalResult
@@ -58,6 +58,10 @@ class RagExecutionResult:
     reply: str
     outcome: DetectorOutcome
     detections: tuple[DetectionEvidence, ...]
+    _session_identity: object
+    _plan_identity: object
+    _mode: RagMode
+    _plan_integrity_digest: str
 
     def __init__(
         self,
@@ -65,13 +69,23 @@ class RagExecutionResult:
         reply: str,
         outcome: DetectorOutcome,
         detections: tuple[DetectionEvidence, ...],
+        session_identity: object | None = None,
+        plan_identity: object | None = None,
+        mode: RagMode = RagMode.BASELINE,
+        plan_integrity_digest: str | None = None,
         _token: object,
     ) -> None:
-        if _token is not _RESULT_TOKEN:
+        if (_token is not _RESULT_TOKEN or session_identity is None
+                or plan_identity is None or type(mode) is not RagMode
+                or type(plan_integrity_digest) is not str):
             _raise_internal_error()
         object.__setattr__(self, "reply", reply)
         object.__setattr__(self, "outcome", outcome)
         object.__setattr__(self, "detections", detections)
+        object.__setattr__(self, "_session_identity", session_identity)
+        object.__setattr__(self, "_plan_identity", plan_identity)
+        object.__setattr__(self, "_mode", mode)
+        object.__setattr__(self, "_plan_integrity_digest", plan_integrity_digest)
 
     def __repr__(self) -> str:
         return (
@@ -85,6 +99,10 @@ class _ValidatedPlan:
     mode: RagMode
     role: Role
     messages: tuple[OllamaMessage, ...]
+    session_identity: object
+    plan_identity: object
+    paired: bool
+    integrity_digest: str
 
 
 def _validate_plan(plan: object) -> _ValidatedPlan:
@@ -160,7 +178,22 @@ def _validate_plan(plan: object) -> _ValidatedPlan:
             raise ValueError
     except (AttributeError, TypeError, ValueError, ValidationError, RagPlanningError):
         _raise_internal_error()
-    return _ValidatedPlan(mode=plan.mode, role=plan.resolved_role, messages=messages)
+    actual_integrity = _rag_plan_integrity(plan)
+    if (plan._session_identity is None or plan._plan_identity is None
+            or type(plan._paired) is not bool or actual_integrity is None
+            or actual_integrity != plan._integrity_digest):
+        _raise_internal_error()
+    return _ValidatedPlan(mode=plan.mode, role=plan.resolved_role, messages=messages,
+                          session_identity=plan._session_identity,
+                          plan_identity=plan._plan_identity, paired=plan._paired,
+                          integrity_digest=actual_integrity)
+
+
+def _execution_result_binding(value: object) -> tuple[object, object, RagMode, str] | None:
+    if type(value) is not RagExecutionResult:
+        return None
+    return (value._session_identity, value._plan_identity, value._mode,
+            value._plan_integrity_digest)
 
 
 def _validated_detector_result(value: object) -> DetectorResult | None:
@@ -267,6 +300,10 @@ class RagExecutor:
             reply=safe_result.reply,
             outcome=safe_result.outcome,
             detections=safe_result.detections,
+            session_identity=validated.session_identity,
+            plan_identity=validated.plan_identity,
+            mode=validated.mode,
+            plan_integrity_digest=validated.integrity_digest,
             _token=_RESULT_TOKEN,
         )
 

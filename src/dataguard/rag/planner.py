@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import re
 import string
@@ -28,7 +29,10 @@ from dataguard.vector_index import (
 )
 
 from dataguard.rag.errors import RagPlanningErrorCode, raise_rag_error
-from dataguard.rag.models import AuthorizationDenial, RagMode, RagPlan, _create_rag_plan
+from dataguard.rag.models import (
+    AuthorizationDenial, PlannerBindingFacts, RequestBindingFacts, RagMode, RagPlan,
+    _create_rag_plan,
+)
 
 
 SYNTHETIC_VERSION = "synthetic-v1"
@@ -42,6 +46,41 @@ _SUBJECT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _RAW_SHA256_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 _QUERY_TOKEN = object()
 _PLANNER_TOKEN = object()
+_PAIR_TOKEN = object()
+
+
+@dataclass(frozen=True, slots=True, repr=False, init=False)
+class PairedRagPlans:
+    baseline: RagPlan
+    guarded: RagPlan
+    binding_facts: PlannerBindingFacts
+    request_binding: RequestBindingFacts
+    _session_identity: object
+    _index_identity: object
+
+    def __init__(self, baseline: RagPlan, guarded: RagPlan,
+                 binding_facts: PlannerBindingFacts, request_binding: RequestBindingFacts,
+                 session_identity: object,
+                 index_identity: object, *, _token: object) -> None:
+        if _token is not _PAIR_TOKEN:
+            raise TypeError("paired plans are created only by RagPlanner.plan_pair")
+        object.__setattr__(self, "baseline", baseline)
+        object.__setattr__(self, "guarded", guarded)
+        object.__setattr__(self, "binding_facts", binding_facts)
+        object.__setattr__(self, "request_binding", request_binding)
+        object.__setattr__(self, "_session_identity", session_identity)
+        object.__setattr__(self, "_index_identity", index_identity)
+
+    def __repr__(self) -> str:
+        return "PairedRagPlans(modes=('baseline', 'guarded'))"
+
+
+def _paired_plan_binding(value: object) -> tuple[RagPlan, RagPlan, PlannerBindingFacts,
+                                                  RequestBindingFacts, object, object] | None:
+    if type(value) is not PairedRagPlans:
+        return None
+    return (value.baseline, value.guarded, value.binding_facts, value.request_binding,
+            value._session_identity, value._index_identity)
 
 
 @dataclass(frozen=True, slots=True, repr=False, init=False)
@@ -52,6 +91,7 @@ class QueryEmbedding:
     _model_tag: str
     _model_digest: str
     _dimensions: int
+    _question_sha256: str
 
     def __init__(
         self,
@@ -59,6 +99,7 @@ class QueryEmbedding:
         model_tag: str,
         model_digest: str,
         dimensions: int,
+        question_sha256: str,
         *,
         _token: object,
     ) -> None:
@@ -68,6 +109,7 @@ class QueryEmbedding:
         object.__setattr__(self, "_model_tag", model_tag)
         object.__setattr__(self, "_model_digest", model_digest)
         object.__setattr__(self, "_dimensions", dimensions)
+        object.__setattr__(self, "_question_sha256", question_sha256)
 
     @property
     def dimensions(self) -> int:
@@ -88,6 +130,11 @@ class QueryEmbedding:
         if token is not _PLANNER_TOKEN:
             raise TypeError("query vector access is restricted to the RAG planner")
         return self._vector
+
+    def _question_digest_for_planner(self, token: object) -> str:
+        if token is not _PLANNER_TOKEN:
+            raise TypeError("query binding access is restricted to the RAG planner")
+        return self._question_sha256
 
 
 def _validate_question(question: object) -> str:
@@ -137,6 +184,7 @@ async def embed_query(
         health.embedding_model.tag,
         health.embedding_model.digest,
         health.embedding_dimensions,
+        hashlib.sha256(accepted_question.encode("utf-8")).hexdigest(),
         _token=_QUERY_TOKEN,
     )
 
@@ -261,6 +309,64 @@ class RagPlanner:
         mode: str,
         query_embedding: QueryEmbedding,
     ) -> RagPlan:
+        return await self._plan(
+            corpus_version=corpus_version, subject_id=subject_id, question=question,
+            mode=mode, query_embedding=query_embedding, session_identity=object(),
+            paired=False, binding_facts=None,
+        )
+
+    async def plan_pair(
+        self, *, corpus_version: str, subject_id: str, question: str,
+        query_embedding: QueryEmbedding,
+    ) -> PairedRagPlans:
+        """Plan both modes from the exact same opaque query handle and bound index."""
+
+        session_identity = object()
+        binding_facts = self._binding_facts()
+        accepted_question = _validate_question(question)
+        request_binding = RequestBindingFacts(
+            corpus_version=corpus_version,
+            subject_id=subject_id,
+            question_sha256=hashlib.sha256(accepted_question.encode("utf-8")).hexdigest(),
+        )
+        baseline = await self._plan(
+            corpus_version=corpus_version, subject_id=subject_id, question=question,
+            mode="baseline", query_embedding=query_embedding,
+            session_identity=session_identity, paired=True, binding_facts=binding_facts,
+        )
+        guarded = await self._plan(
+            corpus_version=corpus_version, subject_id=subject_id, question=question,
+            mode="guarded", query_embedding=query_embedding,
+            session_identity=session_identity, paired=True, binding_facts=binding_facts,
+        )
+        return PairedRagPlans(baseline, guarded, binding_facts, request_binding,
+                              session_identity,
+                              self._index, _token=_PAIR_TOKEN)
+
+    def _binding_facts(self) -> PlannerBindingFacts:
+        index_payload = {
+            "corpus_sha256": self._index.corpus_sha256,
+            "dimensions": self._index.dimensions,
+            "embedding_model_digest": self._index.embedding_model_digest,
+            "embedding_model_tag": self._index.embedding_model_tag,
+            "ordered_document_ids": list(self._index.ordered_document_ids),
+        }
+        digest = hashlib.sha256(json.dumps(index_payload, sort_keys=True,
+            separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+        resource_digests = tuple(sorted(self._resources.artifact_digests().items()))
+        return PlannerBindingFacts(
+            corpus_sha256=self._corpus_sha256, resource_digests=resource_digests,
+            index_binding_digest=digest,
+            embedding_model_tag=self._index.embedding_model_tag,
+            embedding_model_digest=self._index.embedding_model_digest,
+            dimensions=self._index.dimensions,
+        )
+
+    async def _plan(
+        self, *, corpus_version: str, subject_id: str, question: str, mode: str,
+        query_embedding: QueryEmbedding, session_identity: object, paired: bool,
+        binding_facts: PlannerBindingFacts | None,
+    ) -> RagPlan:
         if type(corpus_version) is not str or _DATA_VERSION_PATTERN.fullmatch(corpus_version) is None:
             raise_rag_error(RagPlanningErrorCode.INVALID_REQUEST)
         if corpus_version != SYNTHETIC_VERSION:
@@ -275,7 +381,11 @@ class RagPlanner:
             raise_rag_error(RagPlanningErrorCode.INVALID_REQUEST)
         if not isinstance(query_embedding, QueryEmbedding):
             raise_rag_error(RagPlanningErrorCode.EXPERIMENT_MANIFEST_MISMATCH)
+        expected_question_sha256 = hashlib.sha256(accepted_question.encode("utf-8")).hexdigest()
         if (
+            query_embedding._question_digest_for_planner(_PLANNER_TOKEN)
+                != expected_question_sha256
+            or
             query_embedding.embedding_model_tag != self._index.embedding_model_tag
             or query_embedding.embedding_model_digest != self._index.embedding_model_digest
             or query_embedding.dimensions != self._index.dimensions
@@ -337,6 +447,10 @@ class RagPlanner:
             authorization_denials=denials,
             messages=messages,
             context_message_bytes=message_bytes,
+            session_identity=session_identity,
+            plan_identity=object(),
+            paired=paired,
+            binding_facts=binding_facts,
         )
 
     def _messages(

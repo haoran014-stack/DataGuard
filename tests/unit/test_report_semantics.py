@@ -303,3 +303,89 @@ def test_report_issues_are_stable_complete_and_do_not_echo_identifiers() -> None
     } <= {issue.code for issue in first}
     assert "DO-NOT-ECHO-REPORT-ID" not in rendered
     assert "DO-NOT-ECHO-SCENARIO-ID" not in rendered
+
+
+def _report_with_canary_details() -> dict[str, Any]:
+    report = build_valid_report()
+    source = report["scenario_results"][30]
+    source["baseline"]["detections"] = [
+        {"type": "document_canary", "evidence_id": "canary-detail-a",
+         "violation": True, "action": "observed"},
+        {"type": "system_canary", "evidence_id": "canary-detail-b",
+         "violation": True, "action": "observed"},
+    ]
+    report["summary"]["canary_hit_details"] = [
+        {"scenario_id": source["scenario_id"], "mode": "baseline",
+         "trace_id": source["baseline"]["trace_id"],
+         "detections": deepcopy(source["baseline"]["detections"])}
+    ]
+    return report
+
+
+@pytest.mark.parametrize("mutation,expected_code", [
+    ("missing_detail", "report_canary_missing_detail"),
+    ("extra_detail", "report_canary_extra_detail"),
+    ("replaced_detail", "report_canary_missing_detail"),
+    ("duplicate_detail", "report_canary_duplicate_detail"),
+    ("trace", "report_canary_trace_mismatch"),
+    ("missing_detection", "report_canary_missing_detection"),
+    ("extra_detection", "report_canary_extra_detection"),
+    ("duplicate_detection", "report_canary_duplicate_detection"),
+    ("detection_order", "report_canary_detection_order_mismatch"),
+    ("detection_field", "report_canary_detection_field_mismatch"),
+])
+def test_canary_hit_detail_semantic_rejection_matrix(mutation: str,
+                                                      expected_code: str) -> None:
+    report = _report_with_canary_details()
+    details = report["summary"]["canary_hit_details"]
+    if mutation == "missing_detail":
+        details.clear()
+    elif mutation == "extra_detail":
+        extra = deepcopy(details[0]); extra["scenario_id"] = "extra-detail"
+        details.append(extra)
+    elif mutation == "replaced_detail":
+        details[0]["scenario_id"] = "replacement-detail"
+    elif mutation == "duplicate_detail":
+        details.append(deepcopy(details[0]))
+    elif mutation == "trace":
+        details[0]["trace_id"] = "00000000-0000-4000-8000-000000000999"
+    elif mutation == "missing_detection":
+        details[0]["detections"].pop()
+    elif mutation == "extra_detection":
+        details[0]["detections"].append(
+            {"type": "system_canary", "evidence_id": "canary-detail-extra",
+             "violation": True, "action": "observed"}
+        )
+    elif mutation == "duplicate_detection":
+        details[0]["detections"].append(deepcopy(details[0]["detections"][0]))
+    elif mutation == "detection_order":
+        details[0]["detections"].reverse()
+    elif mutation == "detection_field":
+        details[0]["detections"][0]["action"] = "blocked"
+    assert expected_code in semantic_codes(report)
+
+
+def test_canary_hit_details_follow_scenario_then_mode_order() -> None:
+    report = _report_with_canary_details()
+    source = report["scenario_results"][30]
+    source["guarded"]["detections"] = [
+        {"type": "document_canary", "evidence_id": "canary-detail-a",
+         "violation": True, "action": "blocked"}
+    ]
+    report["summary"]["canary_hit_details"].append(
+        {"scenario_id": source["scenario_id"], "mode": "guarded",
+         "trace_id": source["guarded"]["trace_id"],
+         "detections": deepcopy(source["guarded"]["detections"])}
+    )
+    assert validate_report_semantics(report) == ()
+    report["summary"]["canary_hit_details"].reverse()
+    assert "report_canary_detail_order_mismatch" in semantic_codes(report)
+
+
+def test_failed_guarded_mode_is_never_credited_as_prevention() -> None:
+    report = build_valid_report()
+    guarded = report["scenario_results"][30]["guarded"]
+    guarded.update(outcome="failed", judgment="indeterminate", error_code="model_timeout",
+                   attack_delivered=False, final_leak_count=0, fact_assertion_passed=None)
+    report["scenario_results"][30]["prevention_stage"] = "output_gate"
+    assert "report_prevention_stage_mismatch" in semantic_codes(report)

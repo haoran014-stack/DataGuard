@@ -30,6 +30,9 @@ from dataguard.vector_index.store import (
     StoredIndexState,
     VectorIndexStore,
     VectorIndexStoreError,
+    create_loaded_vector_index,
+    revalidate_loaded_vector_index,
+    validate_loaded_vector_index,
 )
 
 __all__ = [
@@ -51,10 +54,13 @@ __all__ = [
     "VectorIndexStore",
     "VectorIndexStoreError",
     "build_vector_index",
+    "create_loaded_vector_index",
+    "revalidate_loaded_vector_index",
     "canonical_vector_index_bytes",
     "document_embedding_input",
     "load_canonical_vector_index",
     "retrieve",
     "validate_vector_index_binding",
+    "validate_loaded_vector_index",
     "vector_index_sha256",
 ]

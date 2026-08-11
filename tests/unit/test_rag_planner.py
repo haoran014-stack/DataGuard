@@ -20,6 +20,7 @@ from dataguard.ollama import OllamaClient, OllamaHealthFacts, OllamaMessage, Oll
 from dataguard.ollama import OllamaAdapterError, OllamaErrorCode
 from dataguard.ollama.client import EMBEDDING_MODEL, GENERATION_MODEL
 from dataguard.rag import (
+    PairedRagPlans,
     QueryEmbedding,
     AuthorizationDenial,
     RagMode,
@@ -162,6 +163,60 @@ def _plan(planner, query, *, subject="guest-01", question="synthetic question", 
             query_embedding=query,
         )
     )
+
+
+def test_plan_pair_reuses_exact_query_and_shared_index_without_embedding(
+    bundle, security_resources, monkeypatch
+) -> None:
+    planner = _planner(bundle, security_resources)
+    observed: list[httpx.Request] = []
+    query = _run(_query("paired exact question", observed=observed))
+    calls: list[tuple[str, ...]] = []
+
+    def spy(index, vector, eligible):
+        calls.append(eligible)
+        return actual_retrieve(index, vector, eligible)
+
+    monkeypatch.setattr("dataguard.rag.planner.retrieve", spy)
+    pair = _run(planner.plan_pair(corpus_version="synthetic-v1", subject_id="guest-01",
+                                  question="paired exact question", query_embedding=query))
+    assert type(pair) is PairedRagPlans
+    assert len(observed) == 1  # embed happened before plan_pair; plan_pair performs no I/O.
+    assert len(calls) == 2 and len(calls[0]) == 30 and len(calls[1]) == 10
+    assert pair.baseline._session_identity is pair.guarded._session_identity
+    assert pair.baseline._plan_identity is not pair.guarded._plan_identity
+    assert pair.baseline._paired is True and pair.guarded._paired is True
+    rendered = repr(pair) + repr(pair.binding_facts)
+    assert "paired exact question" not in rendered
+    assert EMBEDDING_DIGEST not in rendered and bundle.corpus_sha256 not in rendered
+    single = _plan(planner, query, question="paired exact question")
+    assert single._paired is False
+    with pytest.raises(TypeError):
+        PairedRagPlans(pair.baseline, pair.guarded, pair.binding_facts,
+                       pair.request_binding, object(), object(),
+                       _token=object())
+
+
+def test_query_embedding_is_bound_to_exact_question_before_retrieval(
+    bundle, security_resources, monkeypatch
+) -> None:
+    planner = _planner(bundle, security_resources)
+    query = _run(_query("question A"))
+    calls = 0
+
+    def forbidden_retrieve(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        pytest.fail("retrieval must not run for a mismatched query binding")
+
+    monkeypatch.setattr("dataguard.rag.planner.retrieve", forbidden_retrieve)
+    with pytest.raises(RagPlanningError) as error:
+        _run(planner.plan_pair(corpus_version="synthetic-v1", subject_id="guest-01",
+                               question="question B", query_embedding=query))
+    assert error.value.code is RagPlanningErrorCode.EXPERIMENT_MANIFEST_MISMATCH
+    assert calls == 0
+    rendered = repr(query)
+    assert "question A" not in rendered
 
 
 def _assert_safe_error(error: RagPlanningError) -> None:

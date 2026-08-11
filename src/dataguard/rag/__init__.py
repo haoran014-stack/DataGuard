@@ -8,8 +8,11 @@ from dataguard.rag.execution import (
     RagExecutor,
     create_rag_executor,
 )
-from dataguard.rag.models import AuthorizationDenial, RagMode, RagPlan
+from dataguard.rag.models import (
+    AuthorizationDenial, PlannerBindingFacts, RequestBindingFacts, RagMode, RagPlan,
+)
 from dataguard.rag.planner import (
+    PairedRagPlans,
     QueryEmbedding,
     RagPlanner,
     canonical_documents_json,
@@ -20,6 +23,9 @@ from dataguard.rag.planner import (
 
 __all__ = [
     "AuthorizationDenial",
+    "PairedRagPlans",
+    "PlannerBindingFacts",
+    "RequestBindingFacts",
     "QueryEmbedding",
     "RagExecutionError",
     "RagExecutionErrorCode",
