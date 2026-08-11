@@ -47,6 +47,7 @@ class AuditRepository(Protocol):
     def create_run(self, scenario_set_version: str, profile: EvaluationProfile,
                    created_at: datetime) -> EvaluationRun: ...
     def get_run(self, run_id: str) -> EvaluationRun: ...
+    def list_queued_runs(self) -> tuple[EvaluationRun, ...]: ...
     def get_report(self, run_id: str) -> StoredReport: ...
     def healthcheck(self) -> bool: ...
     def close(self) -> None: ...
@@ -305,6 +306,26 @@ class SQLAlchemyAuditRepository:
                     self._validate_schema(connection)
                     return self._fetch_run(connection, safe_id)
             except (RunNotFoundError, StorageError):
+                raise
+            except Exception:
+                raise StorageError() from None
+
+    def list_queued_runs(self) -> tuple[EvaluationRun, ...]:
+        """Return persisted queued runs in deterministic FIFO order."""
+
+        with self._lock:
+            self._require_open()
+            try:
+                self._validate_runtime_storage()
+                with self._engine.connect() as connection:
+                    self._validate_schema(connection)
+                    rows = connection.execute(
+                        select(evaluation_runs)
+                        .where(evaluation_runs.c.status == RunStatus.QUEUED.value)
+                        .order_by(evaluation_runs.c.created_at, evaluation_runs.c.run_id)
+                    ).mappings().all()
+                    return tuple(self._hydrate_run(row) for row in rows)
+            except StorageError:
                 raise
             except Exception:
                 raise StorageError() from None

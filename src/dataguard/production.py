@@ -22,7 +22,7 @@ from dataguard.api.reports import ReportContract
 from dataguard.config import RuntimeProfile, RuntimeSettings, StorageBackend
 from dataguard.detector import build_whole_output_detector
 from dataguard.evaluation import (
-    EvaluationScheduleError, create_evaluation_context, create_evaluation_runner,
+    MAX_SCHEDULED_TASKS, EvaluationScheduleError, create_evaluation_context, create_evaluation_runner,
     create_evaluation_scheduler,
 )
 from dataguard.evaluation.models import Judgment, ScenarioEvidence
@@ -330,6 +330,8 @@ class ProductionRuntime:
             raise ProductionError()
         repository = None
         client = None
+        scheduler = None
+        run_metrics = None
         try:
             settings = RuntimeSettings.model_validate({**self._settings_input.model_dump(mode="python"),
                 "database_dsn": self._settings_input.database_dsn_value()})
@@ -437,6 +439,11 @@ class ProductionRuntime:
                     _ProductionScenarioSink(repository, metrics, settings.storage_backend.value),
                     run_metrics)
                 scheduler = create_evaluation_scheduler(runner)
+                queued_runs = repository.list_queued_runs()
+                if len(queued_runs) > MAX_SCHEDULED_TASKS:
+                    raise ProductionError("storage_unavailable")
+            else:
+                queued_runs = ()
             object.__setattr__(self, "_repository", repository)
             object.__setattr__(self, "_client", client)
             object.__setattr__(self, "_scheduler", scheduler)
@@ -452,7 +459,25 @@ class ProductionRuntime:
             object.__setattr__(self, "_context", context)
             object.__setattr__(self, "_run_metrics", run_metrics)
             object.__setattr__(self, "_started", True)
+            for queued_run in queued_runs:
+                task = scheduler.schedule(queued_run.run_id)
+                task.add_done_callback(lambda completed, run_id=queued_run.run_id:
+                                       self._evaluation_done(completed, run_id))
         except Exception as error:
+            if scheduler is not None:
+                try: await scheduler.shutdown()
+                except Exception: pass
+            if run_metrics is not None:
+                try: run_metrics.clear()
+                except Exception: pass
+            for name, value in (
+                ("_started", False), ("_services_ready", False),
+                ("_ready_error_code", "internal_error"), ("_repository", None),
+                ("_client", None), ("_scheduler", None), ("_health", None),
+                ("_report_contract", None), ("_metrics", None), ("_planner", None),
+                ("_executor", None), ("_context", None), ("_run_metrics", None),
+            ):
+                object.__setattr__(self, name, value)
             if client is not None:
                 try: await client.aclose()
                 except Exception: pass

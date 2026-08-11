@@ -12,7 +12,9 @@ import dataguard.production as production_module
 from dataguard.api.models import ChatRequest, EvaluationRunRequest
 from dataguard.config import RuntimeSettings
 from dataguard.production import ProductionError, create_production_app, create_runtime
-from dataguard.storage import AuditEventFilter, EvaluationProfile, StorageError
+from dataguard.storage import (
+    AuditEventFilter, EvaluationProfile, StorageError, create_audit_repository,
+)
 from dataguard.validation import load_fixture_bundle
 from dataguard.vector_index import (
     VECTOR_INDEX_FORMAT, VectorIndexArtifact, VectorIndexEntry, VectorIndexStore,
@@ -124,6 +126,104 @@ def test_ready_runtime_chat_audits_minimal_evidence_and_shutdown_is_idempotent(t
         await runtime.shutdown()
         with pytest.raises(ProductionError):
             await runtime.health()
+    asyncio.run(exercise())
+
+
+def test_startup_reschedules_persisted_queued_runs_in_fifo_order(tmp_path, monkeypatch):
+    class Task:
+        def add_done_callback(self, _callback):
+            pass
+
+    class Scheduler:
+        def __init__(self):
+            self.run_ids = []
+
+        def schedule(self, run_id):
+            self.run_ids.append(run_id)
+            return Task()
+
+        async def shutdown(self):
+            pass
+
+    async def exercise() -> None:
+        root = _project(tmp_path)
+        settings = _settings()
+        _write_index(root, settings)
+        repository = create_audit_repository(settings, root)
+        repository.prepare_schema()
+        later = repository.create_run(
+            "synthetic-v1", EvaluationProfile.EXPLORATORY,
+            production_module.datetime(2026, 8, 11, 1, 0, 1,
+                                       tzinfo=production_module.timezone.utc))
+        first = repository.create_run(
+            "synthetic-v1", EvaluationProfile.EXPLORATORY,
+            production_module.datetime(2026, 8, 11, 1, 0, 0,
+                                       tzinfo=production_module.timezone.utc))
+        repository.close()
+        scheduler = Scheduler()
+        monkeypatch.setattr(
+            production_module, "create_evaluation_scheduler", lambda _runner: scheduler)
+        runtime = create_runtime(root, settings, transport=_transport([]))
+        await runtime.startup()
+        assert scheduler.run_ids == [first.run_id, later.run_id]
+        await runtime.shutdown()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("fault", ["first_schedule", "middle_schedule", "callback"])
+def test_queued_recovery_publication_failure_rolls_back_runtime(
+    tmp_path, monkeypatch, fault,
+):
+    class Task:
+        def add_done_callback(self, _callback):
+            if fault == "callback":
+                raise RuntimeError("raw callback failure")
+
+    class Scheduler:
+        def __init__(self):
+            self.schedule_calls = 0
+            self.shutdown_calls = 0
+
+        def schedule(self, _run_id):
+            self.schedule_calls += 1
+            if fault == "first_schedule" or (
+                fault == "middle_schedule" and self.schedule_calls == 2
+            ):
+                raise RuntimeError("raw schedule failure")
+            return Task()
+
+        async def shutdown(self):
+            self.shutdown_calls += 1
+
+    async def exercise() -> None:
+        root = _project(tmp_path)
+        settings = _settings()
+        _write_index(root, settings)
+        repository = create_audit_repository(settings, root)
+        repository.prepare_schema()
+        for second in range(2):
+            repository.create_run(
+                "synthetic-v1", EvaluationProfile.EXPLORATORY,
+                production_module.datetime(2026, 8, 11, 1, 0, second,
+                                           tzinfo=production_module.timezone.utc))
+        repository.close()
+        scheduler = Scheduler()
+        monkeypatch.setattr(
+            production_module, "create_evaluation_scheduler", lambda _runner: scheduler)
+        runtime = create_runtime(root, settings, transport=_transport([]))
+        with pytest.raises(ProductionError) as captured:
+            await runtime.startup()
+        assert "raw" not in str(captured.value) + repr(captured.value)
+        assert scheduler.shutdown_calls == 1
+        assert runtime._started is False
+        assert runtime._services_ready is False
+        for name in (
+            "_repository", "_client", "_scheduler", "_health", "_report_contract",
+            "_metrics", "_planner", "_executor", "_context", "_run_metrics",
+        ):
+            assert getattr(runtime, name) is None
+
     asyncio.run(exercise())
 
 

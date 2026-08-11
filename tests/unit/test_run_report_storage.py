@@ -98,6 +98,18 @@ def test_create_is_always_new_queued_and_evidence_requires_postgresql(run_reposi
         run_repository.create_run("other-v1", EvaluationProfile.EXPLORATORY, NOW)
 
 
+def test_list_queued_runs_is_fifo_and_excludes_nonqueued(run_repository) -> None:
+    later = run_repository.create_run(
+        "synthetic-v1", EvaluationProfile.EXPLORATORY, NOW + timedelta(seconds=1))
+    same_time_a = run_repository.create_run(
+        "synthetic-v1", EvaluationProfile.EXPLORATORY, NOW)
+    same_time_b = run_repository.create_run(
+        "synthetic-v1", EvaluationProfile.EXPLORATORY, NOW)
+    run_repository.start_run(later.run_id, NOW + timedelta(seconds=1))
+    expected = tuple(sorted((same_time_a.run_id, same_time_b.run_id)))
+    assert tuple(run.run_id for run in run_repository.list_queued_runs()) == expected
+
+
 def test_transition_matrix_progress_and_terminal_immutability(run_repository) -> None:
     queued = run_repository.create_run("synthetic-v1", EvaluationProfile.EXPLORATORY, NOW)
     with pytest.raises(RunStateError): run_repository.advance_run(queued.run_id, NOW)
